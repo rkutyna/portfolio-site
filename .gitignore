@@ -11,7 +11,7 @@
 # Miscellaneous
 .DS_Store
 *.pem
-.tutor.md
+tutor.md
 
 # Log files
 npm-debug.log*
