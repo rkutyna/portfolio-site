@@ -4,6 +4,9 @@ FROM node:18-alpine AS builder
 # Set working directory
 WORKDIR /app
 
+# Declare the build-time argument that will be passed from docker-compose
+ARG NEXT_PUBLIC_API_URL
+
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
@@ -12,6 +15,9 @@ RUN npm install
 
 # Copy the rest of the application source code
 COPY . .
+
+# Set the environment variable for the build process
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Build the Next.js application for production
 RUN npm run build

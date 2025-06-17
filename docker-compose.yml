@@ -6,11 +6,43 @@ services:
     container_name: portfolio-api-server
     ports:
       - "3001:3001"
+    environment:
+      - DB_HOST=db
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=portfolio_db
+      - DB_PORT=5432
+    depends_on:
+      db:
+        condition: service_healthy
 
   client:
-    build: ./client
+    build:
+      context: ./client
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:3001/api
     container_name: portfolio-web-client
     ports:
       - "3000:3000"
     depends_on:
       - server
+
+  db:
+    image: postgres:13-alpine
+    container_name: portfolio-postgres-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d portfolio_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=portfolio_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

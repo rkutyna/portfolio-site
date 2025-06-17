@@ -15,25 +15,11 @@ export default function Home() {
 
   // 2. Use the useEffect Hook to fetch data when the component mounts.
   useEffect(() => {
-    // The function inside useEffect is the "effect" we want to run.
-    const fetchProjects = async () => {
-      try {
-        // We use the browser's built-in `fetch` API to make a request to our backend.
-        const response = await fetch('http://localhost:3001/api/projects');
-        // We convert the response body to JSON.
-        const data = await response.json();
-        // We update our component's state with the data from the server.
-        setProjects(data);
-      } catch (error) {
-        console.error('Error fetching projects:', error);
-      }
-    };
-
-    fetchProjects(); // We call the function to run it.
-
-  // The empty array `[]` as the second argument means this effect will only
-  // run ONCE, right after the component is first rendered. 
-  }, []);
+    // Fetch data from the backend API
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`)
+      .then((res) => res.json())
+      .then((data) => setProjects(data));
+  }, []); // The empty array ensures this effect runs only once
 
   return (
     <main>

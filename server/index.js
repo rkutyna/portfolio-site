@@ -4,10 +4,10 @@
 const express = require('express');
 // 1. Import the cors middleware
 const cors = require('cors');
-const app = express();
+// Import the pg library for PostgreSQL database connection
+const { Pool } = require('pg');
 
-// 2. Tell the app to use the cors middleware
-// This will allow requests from any origin. For production, you might want to configure it more securely.
+const app = express();
 app.use(cors());
 
 // 2. Create an Express App
@@ -19,13 +19,41 @@ app.use(cors());
 // conflict with our frontend React app, which is running on port 3000.
 const port = 3001;
 
-// This is our in-memory "database".
-// In a real application, this would come from a database like PostgreSQL.
-const projects = [
-  { id: 1, title: 'OffCampus Clark', description: 'Apartment Listing website built for the Clark University Department of Residential Life and Housing' },
-  { id: 2, title: 'AI Research Project', description: 'A project exploring machine learning models for natural language understanding.' },
-  { id: 3, title: 'Personal Blog Engine', description: 'A lightweight, custom-built blog platform using Node.js and Markdown.' },
-];
+// Set up the connection pool to the PostgreSQL database
+const pool = new Pool({
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
+});
+
+// Function to initialize the database
+// Creates the projects table if it doesn't exist and seeds it with initial data.
+const initializeDatabase = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT
+      );
+    `);
+
+    const res = await pool.query('SELECT * FROM projects');
+    if (res.rowCount === 0) {
+      await pool.query(`
+        INSERT INTO projects (title, description) VALUES
+        ('OffCampus Clark', 'Apartment Listing website built for the Clark University Department of Residential Life and Housing'),
+        ('AI Research Project', 'A project exploring machine learning models for natural language understanding.'),
+        ('Personal Blog Engine', 'A lightweight, custom-built blog platform using Node.js and Markdown.');
+      `);
+      console.log('Database seeded with initial data.');
+    }
+  } catch (err) {
+    console.error('Error initializing database', err.stack);
+  }
+};
 
 // 4. Define a basic "Route"
 // A route is a rule that tells the server what to do when it receives a request
@@ -41,26 +69,30 @@ app.get('/', (req, res) => {
 
 // NEW: This is our API endpoint for projects.
 // When a GET request is made to '/api/projects', this function runs.
-app.get('/api/projects', (req, res) => {
-  // `res.json()` sends the `projects` array back to the client as JSON.
-  res.json(projects);
+app.get('/api/projects', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM projects ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
 });
 
 // NEW: This is our API endpoint for a SINGLE project.
 // The `:id` part is a "URL parameter". Express will capture whatever
 // value is in that part of the URL and put it in `req.params`.
-app.get('/api/projects/:id', (req, res) => {
-  // We get the ID from the URL. It's a string, so we convert it to a number.
-  const projectId = parseInt(req.params.id, 10);
-  // We use the .find() method to look for a project with the matching ID.
-  const project = projects.find(p => p.id === projectId);
-
-  if (project) {
-    // If we find the project, send it back as JSON.
-    res.json(project);
-  } else {
-    // If no project with that ID is found, send a 404 Not Found error.
-    res.status(404).send('Project not found');
+app.get('/api/projects/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).send('Project not found');
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
   }
 });
 
@@ -70,4 +102,6 @@ app.get('/api/projects/:id', (req, res) => {
 // We log a message to the console so we know everything is working.
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
+  // Initialize the database when the server starts
+  initializeDatabase();
 });

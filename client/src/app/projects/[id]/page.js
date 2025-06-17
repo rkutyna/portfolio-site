@@ -16,17 +16,15 @@ export default function ProjectPage() {
   useEffect(() => {
     // We only run the fetch if the `id` is available.
     if (id) {
-      const fetchProject = async () => {
-        try {
-          const response = await fetch(`http://localhost:3001/api/projects/${id}`);
-          const data = await response.json();
+      // Fetch data for the specific project
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects/${id}`)
+        .then((res) => res.json())
+        .then((data) => {
           setProject(data);
-        } catch (error) {
+        })
+        .catch((error) => {
           console.error('Error fetching project:', error);
-        }
-      };
-
-      fetchProject();
+        });
     }
   // We add `id` to the dependency array. This tells React to re-run the effect
   // if the `id` from the URL ever changes.
