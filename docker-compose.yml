@@ -1,0 +1,16 @@
+#version: '3.8'
+
+services:
+  server:
+    build: ./server
+    container_name: portfolio-api-server
+    ports:
+      - "3001:3001"
+
+  client:
+    build: ./client
+    container_name: portfolio-web-client
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
