@@ -6,9 +6,28 @@ const express = require('express');
 const cors = require('cors');
 // Import the pg library for PostgreSQL database connection
 const { Pool } = require('pg');
+const multer = require('multer');
+const path = require('path');
 
 const app = express();
 app.use(cors());
+app.use(express.json()); // Add this middleware to parse JSON bodies
+
+// Serve static files from the 'uploads' directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Set up multer for file storage
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    // Create a unique filename to avoid overwrites
+    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ storage: storage });
 
 // 2. Create an Express App
 // This line creates an instance of the Express application. The `app` variable
@@ -30,23 +49,30 @@ const pool = new Pool({
 
 // Function to initialize the database
 // Creates the projects table if it doesn't exist and seeds it with initial data.
-const initializeDatabase = async () => {
+const initDb = async () => {
   try {
+    // Perform a simple query to confirm connection
+    await pool.query('SELECT NOW()');
+    console.log('✅ Database connection successful.');
+
+    // Check if the projects table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS projects (
         id SERIAL PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
-        description TEXT
+        description TEXT,
+        image_url TEXT,
+        project_url TEXT
       );
     `);
 
     const res = await pool.query('SELECT * FROM projects');
     if (res.rowCount === 0) {
       await pool.query(`
-        INSERT INTO projects (title, description) VALUES
-        ('OffCampus Clark', 'Apartment Listing website built for the Clark University Department of Residential Life and Housing'),
-        ('AI Research Project', 'A project exploring machine learning models for natural language understanding.'),
-        ('Personal Blog Engine', 'A lightweight, custom-built blog platform using Node.js and Markdown.');
+        INSERT INTO projects (title, description, image_url, project_url) VALUES
+        ('OffCampus Clark', 'Apartment Listing website built for the Clark University Department of Residential Life and Housing', 'https://placehold.co/600x400/5A67D8/EBF4FF?text=OffCampus+Clark', 'https://github.com/rkutyna'),
+        ('AI Research Project', 'A project exploring machine learning models for natural language understanding.', 'https://placehold.co/600x400/38B2AC/E6FFFA?text=AI+Research', 'https://github.com/rkutyna'),
+        ('Personal Blog Engine', 'A lightweight, custom-built blog platform using Node.js and Markdown.', 'https://placehold.co/600x400/ED8936/FFF5EB?text=Blog+Engine', 'https://github.com/rkutyna');
       `);
       console.log('Database seeded with initial data.');
     }
@@ -79,9 +105,31 @@ app.get('/api/projects', async (req, res) => {
   }
 });
 
-// NEW: This is our API endpoint for a SINGLE project.
-// The `:id` part is a "URL parameter". Express will capture whatever
-// value is in that part of the URL and put it in `req.params`.
+// API endpoint to CREATE a new project with an image upload
+app.post('/api/projects', upload.single('image'), async (req, res) => {
+  const { title, description, project_url } = req.body;
+  // Construct the full URL for the image
+  const image_url = req.file 
+    ? `${process.env.API_SERVER_URL}/uploads/${req.file.filename}` 
+    : null;
+
+  if (req.file && !process.env.API_SERVER_URL) {
+    console.error('ERROR: API_SERVER_URL environment variable is not set. Image URLs will be incorrect.');
+  }
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO projects (title, description, image_url, project_url) VALUES ($1, $2, $3, $4) RETURNING *',
+      [title, description, image_url, project_url]
+    );
+    res.status(201).json(result.rows[0]); // Return the newly created project
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// API endpoint to get a single project by ID
 app.get('/api/projects/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -96,6 +144,60 @@ app.get('/api/projects/:id', async (req, res) => {
   }
 });
 
+// API endpoint to UPDATE an existing project
+app.put('/api/projects/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, description, image_url, project_url } = req.body;
+  
+  try {
+    // First, check if the project exists
+    const checkProject = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+    if (checkProject.rows.length === 0) {
+      return res.status(404).send('Project not found');
+    }
+
+    // Update the project
+    const result = await pool.query(
+      `UPDATE projects 
+       SET title = COALESCE($1, title),
+           description = COALESCE($2, description),
+           image_url = COALESCE($3, image_url),
+           project_url = COALESCE($4, project_url)
+       WHERE id = $5
+       RETURNING *`,
+      [title, description, image_url, project_url, id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// API endpoint to DELETE a project
+app.delete('/api/projects/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // First, check if the project exists
+    const checkProject = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+    if (checkProject.rows.length === 0) {
+      return res.status(404).send('Project not found');
+    }
+
+    const result = await pool.query (
+      'DELETE FROM projects WHERE id = $1 RETURNING *', [id]
+    );
+
+    res.status(204).end();
+  } 
+  catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
 // 5. Start the Server
 // This command tells our app to start listening for requests on the port we defined.
 // The function `() => { ... }` is a callback that runs once the server is ready.
@@ -103,5 +205,5 @@ app.get('/api/projects/:id', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
   // Initialize the database when the server starts
-  initializeDatabase();
+  initDb();
 });

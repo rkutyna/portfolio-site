@@ -1,16 +1,42 @@
+import Image from 'next/image';
+
 // This defines a new React component named ProjectCard.
-export default function ProjectCard({ title, description }) {
-    return (
-      // This is the main container for the card.
-      // `className` is how we add styles with Tailwind CSS.
-      // - `border`: Adds a thin border around the element.
-      // - `rounded-lg`: Makes the corners of the border slightly rounded (lg = large).
-      // - `p-4`: Adds padding of 1rem (16px) inside the card.
-      <div className="border rounded-lg p-4">
-        {/* This is a placeholder for the project's title. */}
-        <h3 className="text-xl font-bold">{title}</h3>
-        {/* This is a placeholder for the project's description. */}
-        <p className="mt-2">{description}</p>
+export default function ProjectCard({ title, description, imageUrl, projectUrl }) {
+  return (
+    // The parent <Link> in Projects.js makes this whole card a link to the project detail page.
+    <div className="border rounded-lg p-4 flex flex-col h-full hover:shadow-lg transition-shadow duration-300">
+      {/* Project Image */}
+      <div className="relative w-full h-48 mb-4">
+        <Image
+          src={imageUrl || '/images/placeholder.png'} // Use a placeholder if no image is provided
+          alt={`Screenshot of ${title}`}
+          layout="fill"
+          objectFit="contain" // Changed from 'cover' to 'contain'
+          className="rounded-t-lg"
+          unoptimized // Add this prop to bypass Next.js image optimization
+        />
       </div>
-    );
-  }
+
+      {/* Project Content */}
+      <div className="flex-grow">
+        <h3 className="text-xl font-bold">{title}</h3>
+        <p className="mt-2 text-gray-600">{description}</p>
+      </div>
+
+      {/* External Project Link */}
+      {projectUrl && (
+        <a
+          href={projectUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 text-blue-600 hover:underline self-start font-semibold"
+          // Stop the click from bubbling up to the parent <Link> component
+          // so it doesn't navigate to two places at once.
+          onClick={(e) => e.stopPropagation()}
+        >
+          View Project &rarr;
+        </a>
+      )}
+    </div>
+  );
+}

@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function Header() {
     return (
       // <header> is the main container for our header.
@@ -16,13 +18,12 @@ export default function Header() {
           {/* - `flex`: Turns on Flexbox for the list items as well. */}
           {/* - `gap-4`: Adds a gap of 1rem (16px) between each link. */}
           <ul className="flex gap-4">
-            <li><a href="#" className="hover:underline">Home</a></li>
-            <li><a href="#about" className="hover:underline">About</a></li>
-            <li><a href="#projects" className="hover:underline">Projects</a></li>
-            <li><a href="#contact" className="hover:underline">Contact</a></li>
+            <li><Link href="/" className="hover:underline">Home</Link></li>
+            <li><Link href="/#about" className="hover:underline">About</Link></li>
+            <li><Link href="/#projects" className="hover:underline">Projects</Link></li>
+            <li><Link href="/#contact" className="hover:underline">Contact</Link></li>
           </ul>
         </nav>
       </header>
     );
   }
-  

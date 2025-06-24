@@ -12,6 +12,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
+# Create the uploads directory for file storage
+RUN mkdir -p uploads
+
 # 4. Copy the rest of the application source code
 COPY . .
 

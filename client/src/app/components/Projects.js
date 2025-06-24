@@ -13,7 +13,7 @@ export default function Projects({ projects }) {
           We use the .map() method to loop over the `projects` array.
           For each `project` object in the array, we return a ProjectCard component.
         */}
-        {projects.map(project => (
+        {projects.map((project) => (
           // 2. Wrap the ProjectCard in a Link component.
           // - The `key` prop must be on the outermost element in a loop.
           // - The `href` uses a template literal to create a dynamic URL
@@ -22,6 +22,8 @@ export default function Projects({ projects }) {
             <ProjectCard 
               title={project.title} 
               description={project.description} 
+              imageUrl={project.image_url}      // Pass the image URL
+              projectUrl={project.project_url}    // Pass the project link
             />
           </Link>
         ))}

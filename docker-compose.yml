@@ -6,9 +6,14 @@ services:
     container_name: portfolio-api-server
     ports:
       - "3001:3001"
+    volumes:
+      - ./server:/usr/src/app
+      - /usr/src/app/node_modules
+      - server_uploads:/usr/src/app/uploads
     environment:
+      - API_SERVER_URL=http://localhost:3001
       - DB_HOST=db
-      - DB_USER=user
+      - DB_USER=myuser
       - DB_PASSWORD=password
       - DB_NAME=portfolio_db
       - DB_PORT=5432
@@ -28,17 +33,18 @@ services:
       - server
 
   db:
-    image: postgres:13-alpine
+    image: postgres:15-alpine
     container_name: portfolio-postgres-db
+    restart: always
+    environment:
+      - POSTGRES_USER=myuser
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=portfolio_db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d portfolio_db"]
+      test: ["CMD-SHELL", "pg_isready -U myuser -d portfolio_db"]
       interval: 5s
       timeout: 5s
       retries: 5
-    environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=portfolio_db
     ports:
       - "5432:5432"
     volumes:
@@ -46,3 +52,4 @@ services:
 
 volumes:
   postgres_data:
+  server_uploads:
