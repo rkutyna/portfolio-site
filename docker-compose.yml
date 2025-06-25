@@ -7,9 +7,8 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      # The bind mount for development has been removed to ensure data persistence.
-      - /usr/src/app/node_modules
-      - server_uploads:/usr/src/app/uploads
+      # Mount the persistent volume to the correct path inside the container
+      - server_uploads:/app/uploads
     environment:
       - API_SERVER_URL=${API_SERVER_URL}
       - DB_HOST=db
