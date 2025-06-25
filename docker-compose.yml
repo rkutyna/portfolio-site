@@ -11,7 +11,7 @@ services:
       - /usr/src/app/node_modules
       - server_uploads:/usr/src/app/uploads
     environment:
-      - API_SERVER_URL=http://localhost:3001
+      - API_SERVER_URL=${API_SERVER_URL}
       - DB_HOST=db
       - DB_USER=myuser
       - DB_PASSWORD=password
