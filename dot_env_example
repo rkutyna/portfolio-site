@@ -1,0 +1,8 @@
+# This file is for Docker Compose configuration.
+# It should be in the project's root directory.
+
+# The full public URL for the backend API server
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
+
+# The full public URL for the frontend Next.js app
+NEXT_PUBLIC_APP_URL=http://localhost:3000
