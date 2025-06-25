@@ -26,6 +26,8 @@ services:
       context: ./client
       args:
         - NEXT_PUBLIC_API_URL=http://localhost:3001/api
+    environment:
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
     container_name: portfolio-web-client
     ports:
       - "3000:3000"
