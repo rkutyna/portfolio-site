@@ -7,7 +7,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./server:/usr/src/app
+      # The bind mount for development has been removed to ensure data persistence.
       - /usr/src/app/node_modules
       - server_uploads:/usr/src/app/uploads
     environment:

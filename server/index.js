@@ -8,6 +8,7 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
@@ -19,7 +20,10 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Set up multer for file storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/');
+    const uploadPath = path.resolve(__dirname, 'uploads');
+    // Ensure the directory exists before saving the file
+    fs.mkdirSync(uploadPath, { recursive: true });
+    cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
     // Create a unique filename to avoid overwrites
