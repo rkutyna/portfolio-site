@@ -13,7 +13,10 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://rogerkutyna.com'
+    'http://rogerkutyna.com',
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_API_URL,
+    process.env.API_SERVER_URL,
   ],
   // credentials: true // Uncomment if you ever use cookies for auth
 }));
