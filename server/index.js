@@ -10,7 +10,13 @@ const fs = require('fs');
 const jwt = require('jsonwebtoken'); // NEW: JWT for admin auth
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://rogerkutyna.com'
+  ],
+  // credentials: true // Uncomment if you ever use cookies for auth
+}));
 app.use(express.json()); // Add this middleware to parse JSON bodies
 
 // --- JWT Admin Auth Middleware ---
