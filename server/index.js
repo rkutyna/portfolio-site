@@ -45,8 +45,21 @@ app.post('/api/admin/login', (req, res) => {
   res.json({ token });
 });
 
-// Serve static files from the 'uploads' directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Serve static files from the 'uploads' directory with CORS headers for images
+app.use('/uploads', (req, res, next) => {
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://rogerkutyna.com',
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_API_URL,
+    process.env.API_SERVER_URL,
+  ];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
 // Set up multer for file storage
 const storage = multer.diskStorage({
