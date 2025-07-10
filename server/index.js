@@ -2,17 +2,39 @@
 // This line uses Node.js's `require` function to import the Express library
 // that we just installed. We need this to use Express's features.
 const express = require('express');
-// 1. Import the cors middleware
 const cors = require('cors');
-// Import the pg library for PostgreSQL database connection
 const { Pool } = require('pg');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const jwt = require('jsonwebtoken'); // NEW: JWT for admin auth
 
 const app = express();
 app.use(cors());
 app.use(express.json()); // Add this middleware to parse JSON bodies
+
+// --- JWT Admin Auth Middleware ---
+const requireAdmin = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Missing token' });
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.admin = user;
+    next();
+  });
+};
+
+// --- Admin Login Endpoint ---
+app.post('/api/admin/login', (req, res) => {
+  const { secret } = req.body;
+  if (!secret || secret !== process.env.ADMIN_SECRET_KEY) {
+    return res.status(401).json({ error: 'Invalid secret key' });
+  }
+  // Issue JWT
+  const token = jwt.sign({ admin: true }, process.env.JWT_SECRET, { expiresIn: '2h' });
+  res.json({ token });
+});
 
 // Serve static files from the 'uploads' directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -110,7 +132,7 @@ app.get('/api/projects', async (req, res) => {
 });
 
 // API endpoint to CREATE a new project with an image upload
-app.post('/api/projects', upload.single('image'), async (req, res) => {
+app.post('/api/projects', requireAdmin, upload.single('image'), async (req, res) => {
   const { title, description, project_url } = req.body;
   // Construct the full URL for the image
   const image_url = req.file 
@@ -149,7 +171,7 @@ app.get('/api/projects/:id', async (req, res) => {
 });
 
 // API endpoint to UPDATE an existing project
-app.put('/api/projects/:id', async (req, res) => {
+app.put('/api/projects/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { title, description, image_url, project_url } = req.body;
   
@@ -180,7 +202,7 @@ app.put('/api/projects/:id', async (req, res) => {
 });
 
 // API endpoint to DELETE a project
-app.delete('/api/projects/:id', async (req, res) => {
+app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {

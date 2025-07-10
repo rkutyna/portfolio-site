@@ -25,11 +25,11 @@ export default function Home() {
       <Hero />
       
       {/* Add a link to the new project page */}
-      <div className="container mx-auto text-right p-4 md:px-6 lg:px-12 -mb-4 -mt-4">
+      {/* <div className="container mx-auto text-right p-4 md:px-6 lg:px-12 -mb-4 -mt-4">
         <Link href="/projects/new" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-300">
             Create New Project
         </Link>
-      </div>
+      </div> */}
 
       <Projects projects={projects} />
     </>
