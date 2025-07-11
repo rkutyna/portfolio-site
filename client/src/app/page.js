@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Hero from "./components/Hero";
 import Projects from "./components/Projects";
+import Blogs from "./components/Blogs"
 
 export default function Home() {
   // 1. Set up a state variable to store our projects.
@@ -20,6 +21,16 @@ export default function Home() {
       .then((data) => setProjects(data));
   }, []); // The empty array ensures this effect runs only once
 
+  const [blogs, setBlogs] = useState([]);
+
+  // 2. Use the useEffect Hook to fetch data when the component mounts.
+  useEffect(() => {
+    // Fetch data from the backend API
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/blogs`)
+      .then((res) => res.json())
+      .then((data) => setBlogs(data));
+  }, []); // The empty array ensures this effect runs only once
+
   return (
     <>
       <Hero />
@@ -32,6 +43,7 @@ export default function Home() {
       </div> */}
 
       <Projects projects={projects} />
+      <Blogs blogs = {blogs} />
     </>
   );
 }

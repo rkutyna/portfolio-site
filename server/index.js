@@ -122,7 +122,31 @@ const initDb = async () => {
         ('AI Research Project', 'A project exploring machine learning models for natural language understanding.', 'https://placehold.co/600x400/38B2AC/E6FFFA?text=AI+Research', 'https://github.com/rkutyna'),
         ('Personal Blog Engine', 'A lightweight, custom-built blog platform using Node.js and Markdown.', 'https://placehold.co/600x400/ED8936/FFF5EB?text=Blog+Engine', 'https://github.com/rkutyna');
       `);
-      console.log('Database seeded with initial data.');
+      console.log('Database seeded with initial project data.');
+    }
+
+
+    // Check if the blog table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blogs (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        content TEXT,
+        image_url TEXT,
+        date DATE
+      );
+    `);
+
+    const res2 = await pool.query('SELECT * FROM blogs');
+    if (res2.rowCount === 0) {
+      var currentTime = new Date();
+      await pool.query(`
+        INSERT INTO blogs (title, content, image_url, date) VALUES
+        ('OffCampus Clark', 'Apartment Listing website built for the Clark University Department of Residential Life and Housing', 'https://placehold.co/600x400/5A67D8/EBF4FF?text=OffCampus+Clark', NOW()),
+        ('AI Research Project', 'A project exploring machine learning models for natural language understanding.', 'https://placehold.co/600x400/38B2AC/E6FFFA?text=AI+Research', NOW()),
+        ('Personal Blog Engine', 'A lightweight, custom-built blog platform using Node.js and Markdown.', 'https://placehold.co/600x400/ED8936/FFF5EB?text=Blog+Engine', NOW());
+      `);
+      console.log('Database seeded with initial blog data.');
     }
   } catch (err) {
     console.error('Error initializing database', err.stack);
@@ -146,6 +170,18 @@ app.get('/', (req, res) => {
 app.get('/api/projects', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM projects ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// NEW: This is our API endpoint for blogs.
+// When a GET request is made to '/api/blogs', this function runs.
+app.get('/api/blogs', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM blogs ORDER BY date');
     res.json(result.rows);
   } catch (err) {
     console.error('Error executing query', err.stack);
@@ -177,11 +213,52 @@ app.post('/api/projects', requireAdmin, upload.single('image'), async (req, res)
   }
 });
 
+// API endpoint to CREATE a new project with an image upload
+app.post('/api/blogs', requireAdmin, upload.single('image'), async (req, res) => {
+  const { title, content} = req.body;
+  // Construct the full URL for the image
+  const image_url = req.file 
+    ? `${process.env.API_SERVER_URL}/uploads/${req.file.filename}` 
+    : null;
+
+  if (req.file && !process.env.API_SERVER_URL) {
+    console.error('ERROR: API_SERVER_URL environment variable is not set. Image URLs will be incorrect.');
+  }
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO blogs (title, content, image_url, date) VALUES ($1, $2, $3, NOW()) RETURNING *',
+      [title, content, image_url]
+    );
+    res.status(201).json(result.rows[0]); // Return the newly created project
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+
+
 // API endpoint to get a single project by ID
 app.get('/api/projects/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const result = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).send('Project not found');
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// API endpoint to get a single project by ID
+app.get('/api/blogs/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
     if (result.rows.length === 0) {
       return res.status(404).send('Project not found');
     }
@@ -223,6 +300,37 @@ app.put('/api/projects/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// API endpoint to UPDATE an existing project
+app.put('/api/blogs/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { title, content, image_url} = req.body;
+  
+  try {
+    // First, check if the project exists
+    const checkProject = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
+    if (checkProject.rows.length === 0) {
+      return res.status(404).send('Project not found');
+    }
+
+    // Update the project
+    const result = await pool.query(
+      `UPDATE projects 
+       SET title = COALESCE($1, title),
+           content = COALESCE($2, content),
+           image_url = COALESCE($3, image_url),
+           date = NOW()
+       WHERE id = $5
+       RETURNING *`,
+      [title, content, image_url, id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
 // API endpoint to DELETE a project
 app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
@@ -236,6 +344,29 @@ app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
 
     const result = await pool.query (
       'DELETE FROM projects WHERE id = $1 RETURNING *', [id]
+    );
+
+    res.status(204).end();
+  } 
+  catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// API endpoint to DELETE a project
+app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // First, check if the project exists
+    const checkProject = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
+    if (checkProject.rows.length === 0) {
+      return res.status(404).send('Project not found');
+    }
+
+    const result = await pool.query (
+      'DELETE FROM blogs WHERE id = $1 RETURNING *', [id]
     );
 
     res.status(204).end();
