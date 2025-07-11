@@ -12,3 +12,8 @@ NEXT_PUBLIC_API_URL=http://localhost:3001/api
 # The base public URL for the backend server.
 # Used by the backend to create correct, full URLs for uploaded images.
 API_SERVER_URL=http://localhost:3001
+
+
+# Admin Authentication
+ADMIN_SECRET_KEY=your_super_secret_key_here
+JWT_SECRET=your_random_jwt_secret_here
