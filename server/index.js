@@ -133,7 +133,7 @@ const initDb = async () => {
         title VARCHAR(255) NOT NULL,
         content TEXT,
         image_url TEXT,
-        date DATE
+        date TIMESTAMPTZ
       );
     `);
 
@@ -181,7 +181,7 @@ app.get('/api/projects', async (req, res) => {
 // When a GET request is made to '/api/blogs', this function runs.
 app.get('/api/blogs', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM blogs ORDER BY date');
+    const result = await pool.query('SELECT * FROM blogs ORDER BY date DESC');
     res.json(result.rows);
   } catch (err) {
     console.error('Error executing query', err.stack);
@@ -213,7 +213,7 @@ app.post('/api/projects', requireAdmin, upload.single('image'), async (req, res)
   }
 });
 
-// API endpoint to CREATE a new project with an image upload
+// API endpoint to CREATE a new blog with an image upload
 app.post('/api/blogs', requireAdmin, upload.single('image'), async (req, res) => {
   const { title, content} = req.body;
   // Construct the full URL for the image
@@ -254,7 +254,7 @@ app.get('/api/projects/:id', async (req, res) => {
   }
 });
 
-// API endpoint to get a single project by ID
+// API endpoint to get a single blog by ID
 app.get('/api/blogs/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -300,21 +300,21 @@ app.put('/api/projects/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// API endpoint to UPDATE an existing project
+// API endpoint to UPDATE an existing blog
 app.put('/api/blogs/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { title, content, image_url} = req.body;
   
   try {
-    // First, check if the project exists
-    const checkProject = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
-    if (checkProject.rows.length === 0) {
-      return res.status(404).send('Project not found');
+    // First, check if the blog exists
+    const checkBlog = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
+    if (checkBlog.rows.length === 0) {
+      return res.status(404).send('Blog not found');
     }
 
-    // Update the project
+    // Update the blog
     const result = await pool.query(
-      `UPDATE projects 
+      `UPDATE blogs 
        SET title = COALESCE($1, title),
            content = COALESCE($2, content),
            image_url = COALESCE($3, image_url),
@@ -331,12 +331,12 @@ app.put('/api/blogs/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// API endpoint to DELETE a project
-app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
+// API endpoint to DELETE a blog
+app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // First, check if the project exists
+    // First, check if the blog exists
     const checkProject = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
     if (checkProject.rows.length === 0) {
       return res.status(404).send('Project not found');
@@ -354,15 +354,15 @@ app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// API endpoint to DELETE a project
+// API endpoint to DELETE a blog
 app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // First, check if the project exists
-    const checkProject = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
-    if (checkProject.rows.length === 0) {
-      return res.status(404).send('Project not found');
+    // First, check if the blog exists
+    const checkBlog = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
+    if (checkBlog.rows.length === 0) {
+      return res.status(404).send('Blog not found');
     }
 
     const result = await pool.query (
