@@ -319,7 +319,7 @@ app.put('/api/blogs/:id', requireAdmin, async (req, res) => {
            content = COALESCE($2, content),
            image_url = COALESCE($3, image_url),
            date = NOW()
-       WHERE id = $5
+       WHERE id = $4
        RETURNING *`,
       [title, content, image_url, id]
     );
@@ -331,12 +331,12 @@ app.put('/api/blogs/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// API endpoint to DELETE a blog
-app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
+// API endpoint to DELETE a project
+app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // First, check if the blog exists
+    // First, check if the project exists
     const checkProject = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
     if (checkProject.rows.length === 0) {
       return res.status(404).send('Project not found');
