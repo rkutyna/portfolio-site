@@ -34,6 +34,18 @@ const requireAdmin = (req, res, next) => {
   });
 };
 
+// logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(
+      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${duration}ms`
+    );
+  });
+  next();
+});
+
 // --- Admin Login Endpoint ---
 app.post('/api/admin/login', (req, res) => {
   const { secret } = req.body;
