@@ -8,6 +8,8 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken'); // NEW: JWT for admin auth
+const logger = require('./logger'); // centralized winston logger
+const morgan = require('morgan');
 
 const app = express();
 app.use(cors({
@@ -34,14 +36,19 @@ const requireAdmin = (req, res, next) => {
   });
 };
 
-// logging middleware
+// HTTP request logging via morgan (writes through winston)
+app.use(morgan('combined', {
+  stream: {
+    write: (message) => logger.http(message.trim())
+  }
+}));
+
+// Fallback performance logging
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(
-      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${duration}ms`
-    );
+    logger.info(`[${req.method}] ${req.originalUrl} ${res.statusCode} - ${duration}ms`);
   });
   next();
 });
@@ -389,12 +396,19 @@ app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Endpoint to receive client-side logs
+app.post('/api/client-logs', (req, res) => {
+  const { level = 'info', message = '', stack = '' } = req.body;
+  logger.log({ level, message, stack });
+  res.status(204).end();
+});
+
 // 5. Start the Server
 // This command tells our app to start listening for requests on the port we defined.
 // The function `() => { ... }` is a callback that runs once the server is ready.
 // We log a message to the console so we know everything is working.
 app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+  logger.info(`Server is running on http://localhost:${port}`);
   // Initialize the database when the server starts
   initDb();
 });
