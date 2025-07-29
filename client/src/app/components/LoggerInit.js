@@ -1,8 +1,17 @@
 "use client";
-// Component executes on client to ensure logger side effects run and window.logger is set.
-import "../../utils/logger";
+import { useEffect } from "react";
+import logger from "../../utils/logger";
 
 export default function LoggerInit() {
-  // No UI; side-effect only
+  useEffect(() => {
+    const handle = () => {
+      logger.info("pageview", window.location.pathname + window.location.search);
+    };
+    // initial
+    handle();
+    // listen to popstate
+    window.addEventListener("popstate", handle);
+    return () => window.removeEventListener("popstate", handle);
+  }, []);
   return null;
 }

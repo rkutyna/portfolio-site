@@ -37,7 +37,9 @@ const requireAdmin = (req, res, next) => {
 };
 
 // HTTP request logging via morgan (writes through winston)
-app.use(morgan('combined', {
+morgan.token('client-ip', (req) => req.ip || req.headers['x-forwarded-for'] || 'unknown');
+const morganFormat = ':client-ip :method :url :status :res[content-length] - :response-time ms';
+app.use(morgan(morganFormat, {
   stream: {
     write: (message) => logger.http(message.trim())
   }
@@ -399,7 +401,11 @@ app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
 // Endpoint to receive client-side logs
 app.post('/api/client-logs', (req, res) => {
   const { level = 'info', message = '', stack = '' } = req.body;
-  logger.log({ level, message, stack });
+  const meta = {
+    ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
+    ua: req.headers['user-agent'] || '',
+  };
+  logger.log({ level, message, stack, ...meta });
   res.status(204).end();
 });
 

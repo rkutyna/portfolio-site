@@ -25,6 +25,7 @@ const logger = {
   info: (...args) => {
     // eslint-disable-next-line no-console
     console.info(...args);
+    send('info', args.map(String).join(' '));
   },
   warn: (...args) => {
     // eslint-disable-next-line no-console
