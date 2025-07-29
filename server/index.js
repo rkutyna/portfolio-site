@@ -400,11 +400,16 @@ app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
 
 // Endpoint to receive client-side logs
 app.post('/api/client-logs', (req, res) => {
+  if (!req.body || typeof req.body !== 'object') {
+    return res.status(400).json({ error: 'Invalid log payload' });
+  }
+
   const { level = 'info', message = '', stack = '' } = req.body;
   const meta = {
     ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
     ua: req.headers['user-agent'] || '',
   };
+
   logger.log({ level, message, stack, ...meta });
   res.status(204).end();
 });
