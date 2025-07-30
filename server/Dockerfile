@@ -1,6 +1,6 @@
 # 1. Start with a base image
 # We're using an official Node.js image. The 'alpine' version is very small and great for production.
-FROM node:18-alpine
+FROM node:22-alpine
 
 # 2. Set the working directory inside the container
 # All subsequent commands will be run from this path.
