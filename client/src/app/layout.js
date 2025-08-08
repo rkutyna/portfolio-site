@@ -25,12 +25,12 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-sky-100 flex flex-col min-h-screen`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased text-slate-100 flex flex-col min-h-screen bg-gradient-to-b from-sky-950 via-indigo-950 to-slate-950`}
       >
         {/* Initialize client-side logger */}
         <LoggerInit />
         <Header />
-        <main className="flex-grow">{children}</main>
+        <main className="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8">{children}</main>
         <Footer />
       </body>
     </html>
