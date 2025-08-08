@@ -158,6 +158,27 @@ const initDb = async () => {
       );
     `);
 
+    // NEW: Create images tables for projects and blogs (multi-image support)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_images (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        image_url TEXT NOT NULL,
+        position INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blog_images (
+        id SERIAL PRIMARY KEY,
+        blog_id INTEGER NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+        image_url TEXT NOT NULL,
+        position INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
     const res2 = await pool.query('SELECT * FROM blogs');
     if (res2.rowCount === 0) {
       var currentTime = new Date();
@@ -190,7 +211,18 @@ app.get('/', (req, res) => {
 // When a GET request is made to '/api/projects', this function runs.
 app.get('/api/projects', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM projects ORDER BY id ASC');
+    const result = await pool.query(`
+      SELECT 
+        p.*, 
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position, pi.id) FILTER (WHERE pi.id IS NOT NULL),
+          '[]'::json
+        ) AS images
+      FROM projects p
+      LEFT JOIN project_images pi ON pi.project_id = p.id
+      GROUP BY p.id
+      ORDER BY p.id ASC
+    `);
     res.json(result.rows);
   } catch (err) {
     console.error('Error executing query', err.stack);
@@ -202,7 +234,18 @@ app.get('/api/projects', async (req, res) => {
 // When a GET request is made to '/api/blogs', this function runs.
 app.get('/api/blogs', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM blogs ORDER BY date DESC');
+    const result = await pool.query(`
+      SELECT 
+        b.*, 
+        COALESCE(
+          json_agg(bi.image_url ORDER BY bi.position, bi.id) FILTER (WHERE bi.id IS NOT NULL),
+          '[]'::json
+        ) AS images
+      FROM blogs b
+      LEFT JOIN blog_images bi ON bi.blog_id = b.id
+      GROUP BY b.id
+      ORDER BY b.date DESC NULLS LAST, b.id DESC
+    `);
     res.json(result.rows);
   } catch (err) {
     console.error('Error executing query', err.stack);
@@ -211,50 +254,83 @@ app.get('/api/blogs', async (req, res) => {
 });
 
 // API endpoint to CREATE a new project with an image upload
-app.post('/api/projects', requireAdmin, upload.single('image'), async (req, res) => {
+app.post('/api/projects', requireAdmin, upload.array('images'), async (req, res) => {
   const { title, description, project_url } = req.body;
-  // Construct the full URL for the image
-  const image_url = req.file 
-    ? `${process.env.API_SERVER_URL}/uploads/${req.file.filename}` 
-    : null;
+  const files = req.files || [];
+  const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
+  const imageUrls = files.map(f => `${baseUrl}/uploads/${f.filename}`);
+  const firstImage = imageUrls[0] || null;
 
-  if (req.file && !process.env.API_SERVER_URL) {
-    console.error('ERROR: API_SERVER_URL environment variable is not set. Image URLs will be incorrect.');
+  if (files.length > 0 && !process.env.API_SERVER_URL) {
+    console.warn('API_SERVER_URL is not set. Falling back to request host for image URLs.');
   }
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+    const insertProject = await client.query(
       'INSERT INTO projects (title, description, image_url, project_url) VALUES ($1, $2, $3, $4) RETURNING *',
-      [title, description, image_url, project_url]
+      [title, description, firstImage, project_url]
     );
-    res.status(201).json(result.rows[0]); // Return the newly created project
+    const project = insertProject.rows[0];
+
+    // Insert images
+    for (let i = 0; i < imageUrls.length; i++) {
+      await client.query(
+        'INSERT INTO project_images (project_id, image_url, position) VALUES ($1, $2, $3)',
+        [project.id, imageUrls[i], i]
+      );
+    }
+    await client.query('COMMIT');
+
+    // Return with images array
+    project.images = imageUrls;
+    res.status(201).json(project);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Error executing query', err.stack);
     res.status(500).send('Server Error');
+  } finally {
+    client.release();
   }
 });
 
 // API endpoint to CREATE a new blog with an image upload
-app.post('/api/blogs', requireAdmin, upload.single('image'), async (req, res) => {
-  const { title, content} = req.body;
-  // Construct the full URL for the image
-  const image_url = req.file 
-    ? `${process.env.API_SERVER_URL}/uploads/${req.file.filename}` 
-    : null;
+app.post('/api/blogs', requireAdmin, upload.array('images'), async (req, res) => {
+  const { title, content } = req.body;
+  const files = req.files || [];
+  const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
+  const imageUrls = files.map(f => `${baseUrl}/uploads/${f.filename}`);
+  const firstImage = imageUrls[0] || null;
 
-  if (req.file && !process.env.API_SERVER_URL) {
-    console.error('ERROR: API_SERVER_URL environment variable is not set. Image URLs will be incorrect.');
+  if (files.length > 0 && !process.env.API_SERVER_URL) {
+    console.warn('API_SERVER_URL is not set. Falling back to request host for image URLs.');
   }
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+    const insertBlog = await client.query(
       'INSERT INTO blogs (title, content, image_url, date) VALUES ($1, $2, $3, NOW()) RETURNING *',
-      [title, content, image_url]
+      [title, content, firstImage]
     );
-    res.status(201).json(result.rows[0]); // Return the newly created project
+    const blog = insertBlog.rows[0];
+
+    for (let i = 0; i < imageUrls.length; i++) {
+      await client.query(
+        'INSERT INTO blog_images (blog_id, image_url, position) VALUES ($1, $2, $3)',
+        [blog.id, imageUrls[i], i]
+      );
+    }
+    await client.query('COMMIT');
+    blog.images = imageUrls;
+    res.status(201).json(blog);
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('Error executing query', err.stack);
     res.status(500).send('Server Error');
+  } finally {
+    client.release();
   }
 });
 
@@ -264,9 +340,20 @@ app.post('/api/blogs', requireAdmin, upload.single('image'), async (req, res) =>
 app.get('/api/projects/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+    const result = await pool.query(`
+      SELECT 
+        p.*, 
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position, pi.id) FILTER (WHERE pi.id IS NOT NULL),
+          '[]'::json
+        ) AS images
+      FROM projects p
+      LEFT JOIN project_images pi ON pi.project_id = p.id
+      WHERE p.id = $1
+      GROUP BY p.id
+    `, [id]);
     if (result.rows.length === 0) {
-      return res.status(404).send('Project not found');
+      return res.status(404).send('Blog not found');
     }
     res.json(result.rows[0]);
   } catch (err) {
@@ -279,7 +366,18 @@ app.get('/api/projects/:id', async (req, res) => {
 app.get('/api/blogs/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM blogs WHERE id = $1', [id]);
+    const result = await pool.query(`
+      SELECT 
+        b.*, 
+        COALESCE(
+          json_agg(bi.image_url ORDER BY bi.position, bi.id) FILTER (WHERE bi.id IS NOT NULL),
+          '[]'::json
+        ) AS images
+      FROM blogs b
+      LEFT JOIN blog_images bi ON bi.blog_id = b.id
+      WHERE b.id = $1
+      GROUP BY b.id
+    `, [id]);
     if (result.rows.length === 0) {
       return res.status(404).send('Project not found');
     }

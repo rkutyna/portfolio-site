@@ -17,8 +17,8 @@ export default function Blogs({ blogs }) {
           <Link key={blog.id} href={`/blogs/${blog.id}`}>
             <BlogCard 
               title={blog.title} 
-              content={blog.description} 
-              imageUrl={blog.image_url}
+              content={blog.content} 
+              imageUrl={(blog.images && blog.images.length ? blog.images[0] : blog.image_url)}
               date={blog.date}
             />
           </Link>

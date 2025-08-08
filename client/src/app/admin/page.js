@@ -6,7 +6,7 @@ export default function AdminDashboard() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ title: "", description: "", project_url: "", image: null });
+  const [form, setForm] = useState({ title: "", description: "", project_url: "", images: [] });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({ title: "", description: "", project_url: "", image: null });
@@ -47,7 +47,9 @@ export default function AdminDashboard() {
     formData.append("title", form.title);
     formData.append("description", form.description);
     formData.append("project_url", form.project_url);
-    if (form.image) formData.append("image", form.image);
+    if (form.images && form.images.length) {
+      form.images.forEach(file => formData.append("images", file));
+    }
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/projects`, {
         method: "POST",
@@ -57,7 +59,7 @@ export default function AdminDashboard() {
         body: formData,
       });
       if (!res.ok) throw new Error("Failed to create project");
-      setForm({ title: "", description: "", project_url: "", image: null });
+      setForm({ title: "", description: "", project_url: "", images: [] });
       fetchProjects();
     } catch (err) {
       setError(err.message);
@@ -126,14 +128,14 @@ export default function AdminDashboard() {
 
   // UI
   return (
-    <div className="max-w-3xl mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-8 text-center">Admin Dashboard</h1>
+    <div className="max-w-3xl mx-auto py-8 text-sky-100">
+      <h1 className="text-3xl font-bold mb-8 text-center text-sky-100">Admin Dashboard</h1>
       {/* Create Project Form */}
-      <form className="bg-white p-6 rounded shadow mb-8" onSubmit={handleCreate}>
-        <h2 className="text-xl font-semibold mb-4">Create New Project</h2>
+      <form className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl p-6 shadow-sm mb-8" onSubmit={handleCreate}>
+        <h2 className="text-xl font-semibold mb-4 text-sky-100">Create New Project</h2>
         <div className="mb-4">
           <input
-            className="w-full px-3 py-2 border rounded"
+            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
             placeholder="Title"
             value={form.title}
             onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
@@ -142,7 +144,7 @@ export default function AdminDashboard() {
         </div>
         <div className="mb-4">
           <textarea
-            className="w-full px-3 py-2 border rounded"
+            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
             placeholder="Description"
             value={form.description}
             onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -151,7 +153,7 @@ export default function AdminDashboard() {
         </div>
         <div className="mb-4">
           <input
-            className="w-full px-3 py-2 border rounded"
+            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
             placeholder="Project URL (optional)"
             value={form.project_url}
             onChange={e => setForm(f => ({ ...f, project_url: e.target.value }))}
@@ -161,14 +163,15 @@ export default function AdminDashboard() {
           <input
             type="file"
             accept="image/*"
-            className="w-full"
-            onChange={e => setForm(f => ({ ...f, image: e.target.files[0] }))}
+            multiple
+            className="w-full text-slate-200 file:mr-4 file:py-2 file:px-3 file:rounded file:border-0 file:bg-sky-700/70 file:text-white hover:file:bg-sky-600/70"
+            onChange={e => setForm(f => ({ ...f, images: Array.from(e.target.files || []) }))}
             required
           />
         </div>
         <button
           type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          className="bg-sky-600/80 text-white px-4 py-2 rounded border border-white/10 hover:bg-sky-500/80"
           disabled={isSubmitting}
         >
           {isSubmitting ? "Creating..." : "Create Project"}
@@ -179,48 +182,48 @@ export default function AdminDashboard() {
       {error && <div className="text-red-500 mb-4 text-center">{error}</div>}
 
       {/* Projects List */}
-      <div className="bg-white p-6 rounded shadow">
-        <h2 className="text-xl font-semibold mb-4">All Projects</h2>
+      <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl p-6 shadow-sm">
+        <h2 className="text-xl font-semibold mb-4 text-sky-100">All Projects</h2>
         {loading ? (
           <div>Loading...</div>
         ) : (
           <ul>
             {projects.map(project => (
-              <li key={project.id} className="mb-6 border-b pb-4">
+              <li key={project.id} className="mb-6 border-b border-white/10 pb-4">
                 {editId === project.id ? (
                   <form className="space-y-2" onSubmit={handleEdit}>
                     <input
-                      className="w-full px-3 py-2 border rounded"
+                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
                       value={editForm.title}
                       onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
                       required
                     />
                     <textarea
-                      className="w-full px-3 py-2 border rounded"
+                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
                       value={editForm.description}
                       onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
                       required
                     />
                     <input
-                      className="w-full px-3 py-2 border rounded"
+                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
                       value={editForm.project_url}
                       onChange={e => setEditForm(f => ({ ...f, project_url: e.target.value }))}
                     />
                     <div className="flex gap-2">
-                      <button type="submit" className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700" disabled={isSubmitting}>Save</button>
-                      <button type="button" className="bg-gray-300 px-3 py-1 rounded" onClick={() => setEditId(null)}>Cancel</button>
+                      <button type="submit" className="bg-emerald-600/80 text-white px-3 py-1 rounded border border-white/10 hover:bg-emerald-500/80" disabled={isSubmitting}>Save</button>
+                      <button type="button" className="bg-white/10 text-sky-100 px-3 py-1 rounded border border-white/20 hover:bg-white/15" onClick={() => setEditId(null)}>Cancel</button>
                     </div>
                   </form>
                 ) : (
                   <div>
-                    <div className="font-bold text-lg">{project.title}</div>
-                    <div className="text-gray-700 mb-2">{project.description}</div>
+                    <div className="font-bold text-lg text-sky-100">{project.title}</div>
+                    <div className="text-slate-300 mb-2">{project.description}</div>
                     {project.project_url && (
-                      <a href={project.project_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">View Project</a>
+                      <a href={project.project_url} target="_blank" rel="noopener noreferrer" className="text-sky-300 hover:text-sky-200 underline">View Project</a>
                     )}
                     <div className="flex gap-2 mt-2">
-                      <button className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600" onClick={() => startEdit(project)}>Edit</button>
-                      <button className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700" onClick={() => handleDelete(project.id)}>Delete</button>
+                      <button className="bg-amber-500/80 text-white px-3 py-1 rounded border border-white/10 hover:bg-amber-400/80" onClick={() => startEdit(project)}>Edit</button>
+                      <button className="bg-rose-600/80 text-white px-3 py-1 rounded border border-white/10 hover:bg-rose-500/80" onClick={() => handleDelete(project.id)}>Delete</button>
                     </div>
                   </div>
                 )}

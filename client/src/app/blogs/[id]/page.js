@@ -4,6 +4,7 @@
 import { useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import Image from 'next/image'; // Import the Next.js Image component
+import Carousel from '../../components/Carousel';
 
 export default function BlogPage() {
   // The `useParams` hook returns an object containing the route's dynamic parameters.
@@ -42,19 +43,15 @@ export default function BlogPage() {
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-sm">
         <h1 className="text-3xl font-extrabold mb-4 text-sky-100">{blog.title}</h1>
       
-      {/* Blog Image */}
-      {blog.image_url && (
-        <div className="relative w-full h-96 mb-6 rounded-lg overflow-hidden">
-          <Image
-            src={blog.image_url}
-            alt={`Screenshot of ${blog.title}`}
-            fill
-            className="object-contain"
-            sizes="100vw"
-            unoptimized // Add this prop to bypass Next.js image optimization
-          />
-        </div>
-      )}
+      {/* Blog Images Carousel */}
+      {(() => {
+        const images = (blog.images && blog.images.length) ? blog.images : (blog.image_url ? [blog.image_url] : []);
+        return images.length ? (
+          <div className="mb-6">
+            <Carousel images={images} alt={`Images for ${blog.title}`} />
+          </div>
+        ) : null;
+      })()}
 
       <p className="text-lg text-slate-300 mb-6">{blog.content}</p>
       <p className="text-sm text-slate-400">{new Date(blog.date).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</p>

@@ -19,7 +19,7 @@ export default function Projects({ projects }) {
             <ProjectCard 
               title={project.title} 
               description={project.description} 
-              imageUrl={project.image_url}
+              imageUrl={(project.images && project.images.length ? project.images[0] : project.image_url)}
               projectUrl={project.project_url}
             />
           </Link>
