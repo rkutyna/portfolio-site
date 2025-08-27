@@ -20,7 +20,7 @@ export default function BlogCard({ title, content, imageUrl, date}) {
       {/* Project Content */}
       <div className="flex-grow">
         <h3 className="text-xl font-bold text-sky-100">{title}</h3>
-        <p className="mt-2 text-slate-300">{content}</p>
+        <p className="mt-2 text-slate-300 line-clamp-4">{content}</p>
         <p className="mt-3 inline-flex items-center gap-2 text-slate-400 text-sm">
           <span className="inline-block h-2 w-2 rounded-full bg-sky-400" aria-hidden></span>
           {new Date(date).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}

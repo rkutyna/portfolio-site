@@ -10,6 +10,15 @@ html {
   background-color: rgb(186 230 253 / 0.6); /* sky-200 / 60% */
   color: #0f172a; /* slate-900 */
 }
+@layer utilities {
+  .line-clamp-4 {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
 
 /* Improve default link focus for accessibility */
 a:focus-visible {

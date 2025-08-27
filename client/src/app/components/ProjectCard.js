@@ -20,7 +20,7 @@ export default function ProjectCard({ title, description, imageUrl, projectUrl }
       {/* Project Content */}
       <div className="flex-grow">
         <h3 className="text-xl font-bold text-sky-100">{title}</h3>
-        <p className="mt-2 text-slate-300">{description}</p>
+        <p className="mt-2 text-slate-300 line-clamp-4">{description}</p>
       </div>
 
       {/* External Project Link */}
