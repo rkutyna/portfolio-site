@@ -53,7 +53,7 @@ export default function ProjectPage() {
         ) : null;
       })()}
 
-      <p className="text-lg text-slate-300 mb-6">{project.description}</p>
+      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>{project.description}</div>
 
       {/* External Project Link */}
       {project.project_url && (

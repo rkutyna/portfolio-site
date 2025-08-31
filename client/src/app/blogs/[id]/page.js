@@ -52,8 +52,7 @@ export default function BlogPage() {
           </div>
         ) : null;
       })()}
-
-      <p className="text-lg text-slate-300 mb-6">{blog.content}</p>
+      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>{blog.content}</div>
       <p className="text-sm text-slate-400">{new Date(blog.date).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</p>
       </div>
     </div>
