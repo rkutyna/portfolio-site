@@ -41,7 +41,7 @@ export default function ResumePage() {
         </div>
 
         <p className="mt-3 text-sm text-slate-400">
-          If the PDF does not display, use the "Open Fullscreen" button above.
+          If the PDF does not display, use the &quot;Open Fullscreen&quot; button above.
         </p>
       </div>
     </div>
