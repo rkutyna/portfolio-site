@@ -5,6 +5,9 @@ import { useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import Image from 'next/image'; // Import the Next.js Image component
 import Carousel from '../../components/Carousel';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 
 export default function BlogPage() {
   // The `useParams` hook returns an object containing the route's dynamic parameters.
@@ -52,7 +55,11 @@ export default function BlogPage() {
           </div>
         ) : null;
       })()}
-      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>{blog.content}</div>
+      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+          {blog.content || ''}
+        </ReactMarkdown>
+      </div>
       <p className="text-sm text-slate-400">{new Date(blog.date).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</p>
       </div>
     </div>

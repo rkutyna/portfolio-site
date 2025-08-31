@@ -5,6 +5,9 @@ import { useParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import Image from 'next/image'; // Import the Next.js Image component
 import Carousel from '../../components/Carousel';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 
 export default function ProjectPage() {
   // The `useParams` hook returns an object containing the route's dynamic parameters.
@@ -53,7 +56,11 @@ export default function ProjectPage() {
         ) : null;
       })()}
 
-      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>{project.description}</div>
+      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>
+        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+          {project.description || ''}
+        </ReactMarkdown>
+      </div>
 
       {/* External Project Link */}
       {project.project_url && (

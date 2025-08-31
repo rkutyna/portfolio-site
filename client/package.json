@@ -11,7 +11,10 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.3.3"
+    "next": "15.3.3",
+    "react-markdown": "^9.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-breaks": "^4.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
