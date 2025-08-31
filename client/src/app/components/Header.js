@@ -39,6 +39,11 @@ export default function Header() {
                   </Link>
                 </li>
                 <li>
+                  <Link href="/resume" className="px-3 py-2 rounded-md text-sky-900 hover:text-sky-950 hover:bg-sky-200/50 transition-colors">
+                    Resume
+                  </Link>
+                </li>
+                <li>
                   <Link href="/#contact" className="px-3 py-2 rounded-md text-sky-900 hover:text-sky-950 hover:bg-sky-200/50 transition-colors">
                     Contact
                   </Link>
@@ -94,6 +99,11 @@ export default function Header() {
                 <li>
                   <Link href="/#blogs" className="block px-3 py-2 rounded-md text-sky-900 hover:text-sky-950 hover:bg-sky-200/50 transition-colors" onClick={() => setMobileOpen(false)}>
                     Blog Posts
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/resume" className="block px-3 py-2 rounded-md text-sky-900 hover:text-sky-950 hover:bg-sky-200/50 transition-colors" onClick={() => setMobileOpen(false)}>
+                    Resume
                   </Link>
                 </li>
                 <li>
