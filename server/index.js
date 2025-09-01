@@ -10,6 +10,8 @@ const fs = require('fs');
 const jwt = require('jsonwebtoken'); // NEW: JWT for admin auth
 const logger = require('./logger'); // centralized winston logger
 const morgan = require('morgan');
+const { exiftool } = require('exiftool-vendored');
+const sharp = require('sharp');
 
 const app = express();
 app.use(cors({
@@ -96,7 +98,147 @@ const storage = multer.diskStorage({
   }
 });
 
+// Initialize multer using the above storage BEFORE defining routes that use `upload`
 const upload = multer({ storage: storage });
+
+// --- Photos Endpoints ---
+// List photos
+app.get('/api/photos', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM photos ORDER BY created_at DESC NULLS LAST, id DESC'
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// Create photo (supports RAW/HEIC -> JPEG conversion and deletes originals)
+app.post('/api/photos', requireAdmin, upload.single('photo'), async (req, res) => {
+  const { title = null, caption = null } = req.body || {};
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'Missing photo file' });
+
+  const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
+  const uploadsDir = path.resolve(__dirname, 'uploads');
+
+  let imageUrl = null;
+  let rawUrl = null;
+  const originalExt = path.extname(file.originalname || '').toLowerCase();
+  const isRaw = ['.nef', '.dng', '.cr2', '.cr3', '.arw', '.rw2', '.orf', '.raf', '.srw'].includes(originalExt);
+  const isHeic = originalExt === '.heic' || originalExt === '.heif' || (file.mimetype && (file.mimetype.includes('heic') || file.mimetype.includes('heif')));
+
+  try {
+    if (isRaw) {
+      // Convert RAW to JPEG preview via exiftool-vendored, then delete original
+      const jpegName = `photo-${Date.now()}.jpg`;
+      const jpegPath = path.join(uploadsDir, jpegName);
+      await exiftool.extractJpgFromRaw(file.path, jpegPath);
+      imageUrl = `${baseUrl}/uploads/${jpegName}`;
+      try { fs.unlinkSync(file.path); } catch (e) { console.warn('Failed to delete original raw file', e); }
+      rawUrl = null;
+    } else if (isHeic) {
+      // Convert HEIC/HEIF to JPEG via sharp, then delete original
+      const jpegName = `photo-${Date.now()}.jpg`;
+      const jpegPath = path.join(uploadsDir, jpegName);
+      await sharp(file.path).rotate().jpeg({ quality: 90 }).toFile(jpegPath);
+      imageUrl = `${baseUrl}/uploads/${jpegName}`;
+      try { fs.unlinkSync(file.path); } catch (e) { console.warn('Failed to delete original HEIC/HEIF file', e); }
+      rawUrl = null;
+    } else {
+      // Use the uploaded image as-is
+      imageUrl = `${baseUrl}/uploads/${file.filename}`;
+    }
+
+    const result = await pool.query(
+      'INSERT INTO photos (title, caption, image_url, raw_url) VALUES ($1, $2, $3, $4) RETURNING *',
+      [title, caption, imageUrl, rawUrl]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error processing photo upload', err);
+    res.status(500).json({ error: 'Failed to process photo upload' });
+  }
+});
+
+// Get single photo
+app.get('/api/photos/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query('SELECT * FROM photos WHERE id = $1', [id]);
+    if (result.rows.length === 0) return res.status(404).send('Photo not found');
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// Update photo metadata (title/caption)
+app.put('/api/photos/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { title = null, caption = null } = req.body || {};
+  try {
+    // ensure exists
+    const check = await pool.query('SELECT * FROM photos WHERE id = $1', [id]);
+    if (check.rows.length === 0) return res.status(404).send('Photo not found');
+    const result = await pool.query(
+      `UPDATE photos
+       SET title = COALESCE($1, title),
+           caption = COALESCE($2, caption)
+       WHERE id = $3
+       RETURNING *`,
+      [title, caption, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// Delete photo (and attempt to delete files)
+app.delete('/api/photos/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const check = await pool.query('SELECT * FROM photos WHERE id = $1', [id]);
+    if (check.rows.length === 0) return res.status(404).send('Photo not found');
+    const photo = check.rows[0];
+
+    const uploadsDir = path.resolve(__dirname, 'uploads');
+    const deleteIfExists = (fileUrl) => {
+      try {
+        if (!fileUrl) return;
+        const filename = path.basename(new URL(fileUrl).pathname);
+        const filePath = path.join(uploadsDir, filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (e) {
+        console.warn('Failed to delete file for photo', e);
+      }
+    };
+
+    await pool.query('DELETE FROM photos WHERE id = $1', [id]);
+    deleteIfExists(photo.image_url);
+    deleteIfExists(photo.raw_url);
+    res.status(204).end();
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
+// Graceful shutdown of exiftool child process
+const stopExiftool = async () => {
+  try {
+    await exiftool.end();
+  } catch (e) {
+    logger.warn('Failed to end exiftool cleanly', e);
+  }
+};
+process.once('SIGINT', () => { stopExiftool().finally(() => process.exit(0)); });
+process.once('SIGTERM', () => { stopExiftool().finally(() => process.exit(0)); });
 
 // 2. Create an Express App
 // This line creates an instance of the Express application. The `app` variable
@@ -175,6 +317,18 @@ const initDb = async () => {
         blog_id INTEGER NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
         image_url TEXT NOT NULL,
         position INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // Photos table for the gallery
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS photos (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255),
+        caption TEXT,
+        image_url TEXT NOT NULL,
+        raw_url TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);

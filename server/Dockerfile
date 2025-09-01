@@ -6,6 +6,9 @@ FROM node:22-alpine
 # All subsequent commands will be run from this path.
 WORKDIR /app
 
+# Install system dependencies required by exiftool-vendored
+RUN apk add --no-cache perl libc6-compat
+
 # 3. Copy package files and install dependencies
 # We copy these first to leverage Docker's layer caching. If these files don't change,
 # Docker won't re-run the `npm install` step on subsequent builds, saving time.
