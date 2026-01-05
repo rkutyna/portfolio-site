@@ -135,17 +135,19 @@ app.post('/api/photos', requireAdmin, upload.single('photo'), async (req, res) =
       // Convert RAW to JPEG preview via exiftool-vendored, then delete original
       const jpegName = `photo-${Date.now()}.jpg`;
       const jpegPath = path.join(uploadsDir, jpegName);
-      await exiftool.extractJpgFromRaw(file.path, jpegPath);
+      const rawInputPath = path.resolve(uploadsDir, file.filename);
+      await exiftool.extractJpgFromRaw(rawInputPath, jpegPath);
       imageUrl = `${baseUrl}/uploads/${jpegName}`;
-      try { fs.unlinkSync(file.path); } catch (e) { console.warn('Failed to delete original raw file', e); }
+      try { fs.unlinkSync(rawInputPath); } catch (e) { console.warn('Failed to delete original raw file', e); }
       rawUrl = null;
     } else if (isHeic) {
       // Convert HEIC/HEIF to JPEG via sharp, then delete original
       const jpegName = `photo-${Date.now()}.jpg`;
       const jpegPath = path.join(uploadsDir, jpegName);
-      await sharp(file.path).rotate().jpeg({ quality: 90 }).toFile(jpegPath);
+      const heicInputPath = path.resolve(uploadsDir, file.filename);
+      await sharp(heicInputPath).rotate().jpeg({ quality: 90 }).toFile(jpegPath);
       imageUrl = `${baseUrl}/uploads/${jpegName}`;
-      try { fs.unlinkSync(file.path); } catch (e) { console.warn('Failed to delete original HEIC/HEIF file', e); }
+      try { fs.unlinkSync(heicInputPath); } catch (e) { console.warn('Failed to delete original HEIC/HEIF file', e); }
       rawUrl = null;
     } else {
       // Use the uploaded image as-is
