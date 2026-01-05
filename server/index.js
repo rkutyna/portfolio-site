@@ -411,11 +411,13 @@ app.get('/api/blogs', async (req, res) => {
 app.post('/api/projects', requireAdmin, upload.array('images'), async (req, res) => {
   const { title, description, project_url } = req.body;
   const files = req.files || [];
+  const MAX_FILES = 50;
+  const safeFiles = Array.isArray(files) ? files.slice(0, MAX_FILES) : [];
   const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
-  const imageUrls = files.map(f => `${baseUrl}/uploads/${f.filename}`);
+  const imageUrls = safeFiles.map(f => `${baseUrl}/uploads/${f.filename}`);
   const firstImage = imageUrls[0] || null;
 
-  if (files.length > 0 && !process.env.API_SERVER_URL) {
+  if (safeFiles.length > 0 && !process.env.API_SERVER_URL) {
     console.warn('API_SERVER_URL is not set. Falling back to request host for image URLs.');
   }
 
@@ -450,14 +452,16 @@ app.post('/api/projects', requireAdmin, upload.array('images'), async (req, res)
 });
 
 // API endpoint to CREATE a new blog with an image upload
+  const MAX_FILES = 50;
+  const safeFiles = Array.isArray(files) ? files.slice(0, MAX_FILES) : [];
 app.post('/api/blogs', requireAdmin, upload.array('images'), async (req, res) => {
   const { title, content } = req.body;
   const files = req.files || [];
   const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
-  const imageUrls = files.map(f => `${baseUrl}/uploads/${f.filename}`);
+  const imageUrls = safeFiles.map(f => `${baseUrl}/uploads/${f.filename}`);
   const firstImage = imageUrls[0] || null;
 
-  if (files.length > 0 && !process.env.API_SERVER_URL) {
+  if (safeFiles.length > 0 && !process.env.API_SERVER_URL) {
     console.warn('API_SERVER_URL is not set. Falling back to request host for image URLs.');
   }
 
