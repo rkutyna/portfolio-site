@@ -43,4 +43,6 @@ COPY --from=builder /app/public ./public
 EXPOSE 3000
 
 # The command to start the production server
+RUN chown -R node:node /app
+USER node
 CMD ["npm", "start"]

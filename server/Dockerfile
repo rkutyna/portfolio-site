@@ -6,20 +6,15 @@ FROM node:22-alpine
 # All subsequent commands will be run from this path.
 WORKDIR /app
 
-# Install system dependencies required by exiftool-vendored
-RUN apk add --no-cache perl libc6-compat
-
 # 3. Copy package files and install dependencies
 # We copy these first to leverage Docker's layer caching. If these files don't change,
 # Docker won't re-run the `npm install` step on subsequent builds, saving time.
 COPY package*.json ./
 RUN npm install
 
-# Create the uploads directory for file storage
-RUN mkdir -p uploads
-
 # 4. Copy the rest of the application source code
 COPY . .
+RUN mkdir -p uploads && chown -R node:node /app
 
 # 5. Expose the port the app runs on
 # This tells Docker that the container will listen on port 3001.
@@ -27,4 +22,5 @@ EXPOSE 3001
 
 # 6. Define the command to run the application
 # This is the command that will be executed when the container starts.
+USER node
 CMD ["node", "index.js"]
