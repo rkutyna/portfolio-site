@@ -5,8 +5,8 @@
   "type": "commonjs",
   "main": "worker.js",
   "dependencies": {
-    "exiftool-vendored": "^24.6.0",
-    "pg": "^8.12.0",
-    "sharp": "^0.33.4"
+    "exiftool-vendored": "^37.2.0",
+    "pg": "^8.23.0",
+    "sharp": "^0.35.3"
   }
 }
