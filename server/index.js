@@ -3,28 +3,62 @@
 // that we just installed. We need this to use Express's features.
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { Pool } = require('pg');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const jwt = require('jsonwebtoken'); // NEW: JWT for admin auth
 const logger = require('./logger'); // centralized winston logger
+const geoip = require('geoip-lite');
 const morgan = require('morgan');
-const { exiftool } = require('exiftool-vendored');
-const sharp = require('sharp');
+const crypto = require('crypto');
 
 const app = express();
+app.set('trust proxy', 1);
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://rogerkutyna.com',
+    'https://rogerkutyna.com',
+    'https://api.rogerkutyna.com',
     process.env.NEXT_PUBLIC_APP_URL,
     process.env.NEXT_PUBLIC_API_URL,
     process.env.API_SERVER_URL,
   ],
   // credentials: true // Uncomment if you ever use cookies for auth
 }));
-app.use(express.json()); // Add this middleware to parse JSON bodies
+app.use(express.json({ limit: '1mb' })); // Add this middleware to parse JSON bodies
+
+// --- Editable site copy ---
+// Every one of these keys is exposed at GET /api/content and editable from
+// /admin/content. Defaults are seeded once; after that the DB row wins.
+const CONTENT_DEFAULTS = {
+  site_title: "R. Kutyna | Roger Kutyna's ML/AI Portfolio",
+  site_description: "Roger Kutyna's ML/AI portfolio.",
+  brand_name: 'Roger Kutyna',
+  hero_title: 'Roger Kutyna',
+  hero_subtitle:
+    'ML and applied AI engineer. M.Sc. Information Technology (Generative AI), Clark University. Bird photographer.',
+  hero_primary_label: 'View My Work',
+  hero_primary_href: '#projects',
+  contact_email: 'rkutyna@clarku.edu',
+  about_heading: 'About',
+  about_body:
+    "I'm an ML and applied AI engineer with an M.Sc. in Information Technology (Generative AI) from Clark University. I build practical systems that put machine learning to work, and when I'm not doing that you'll usually find me outside with a camera pointed at a bird.",
+  projects_heading: 'Projects',
+  blogs_heading: 'Blog Posts',
+  photos_heading: 'Photo Gallery',
+  photos_intro: '',
+  contact_heading: 'Contact',
+  contact_body: "The fastest way to reach me is email. I'm always happy to talk about ML, engineering work, or birds.",
+  resume_heading: 'Resume',
+  footer_text: 'All rights reserved.',
+};
+
+const CONTENT_KEYS = new Set(Object.keys(CONTENT_DEFAULTS));
+const CONTENT_MAX_LEN = 20000;
 
 // --- JWT Admin Auth Middleware ---
 const requireAdmin = (req, res, next) => {
@@ -58,7 +92,25 @@ app.use((req, res, next) => {
 });
 
 // --- Admin Login Endpoint ---
-app.post('/api/admin/login', (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.get('/api/admin/verify', requireAdmin, (req, res) => {
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/login', loginLimiter, (req, res) => {
   const { secret } = req.body;
   if (!secret || secret !== process.env.ADMIN_SECRET_KEY) {
     return res.status(401).json({ error: 'Invalid secret key' });
@@ -70,9 +122,12 @@ app.post('/api/admin/login', (req, res) => {
 
 // Serve static files from the 'uploads' directory with CORS headers for images
 app.use('/uploads', (req, res, next) => {
+  if (req.path.startsWith('/raw/')) {
+    return res.status(403).end();
+  }
   const allowedOrigins = [
-    'http://localhost:3000',
-    'http://rogerkutyna.com',
+    'https://rogerkutyna.com',
+    'https://api.rogerkutyna.com',
     process.env.NEXT_PUBLIC_APP_URL,
     process.env.NEXT_PUBLIC_API_URL,
     process.env.API_SERVER_URL,
@@ -81,16 +136,33 @@ app.use('/uploads', (req, res, next) => {
   if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
   }
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
-}, express.static(path.join(__dirname, 'uploads')));
+}, express.static(path.join(__dirname, 'uploads'), {
+  // Upload filenames embed a timestamp and are never rewritten in place, so the
+  // bytes at a given URL never change. The one exception is resume.pdf, which is
+  // overwritten on re-upload and is served through /api/resume anyway.
+  maxAge: '365d',
+  immutable: true,
+  setHeaders: (res, filePath) => {
+    if (path.basename(filePath) === 'resume.pdf') {
+      res.setHeader('Cache-Control', 'public, max-age=300');
+    }
+  },
+}));
 
 // Set up multer for file storage
+const uploadsRoot = path.resolve(__dirname, 'uploads');
+const rawUploadsDir = path.join(uploadsRoot, 'raw');
+const videosDir = path.join(uploadsRoot, 'videos');
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = path.resolve(__dirname, 'uploads');
-    // Ensure the directory exists before saving the file
-    fs.mkdirSync(uploadPath, { recursive: true });
-    cb(null, uploadPath);
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const isJpeg = ext === '.jpg' || ext === '.jpeg';
+    const targetDir = isJpeg ? uploadsRoot : rawUploadsDir;
+    fs.mkdirSync(targetDir, { recursive: true });
+    cb(null, targetDir);
   },
   filename: function (req, file, cb) {
     // Create a unique filename to avoid overwrites
@@ -98,16 +170,360 @@ const storage = multer.diskStorage({
   }
 });
 
-// Initialize multer using the above storage BEFORE defining routes that use `upload`
-const upload = multer({ storage: storage });
+const projectMediaStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const targetDir = file.fieldname === 'video' ? videosDir : uploadsRoot;
+    fs.mkdirSync(targetDir, { recursive: true });
+    cb(null, targetDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
+  }
+});
+
+const isAllowedImage = (file) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const isJpeg = file.mimetype === 'image/jpeg' && (ext === '.jpg' || ext === '.jpeg');
+  return isJpeg;
+};
+
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.avi', '.mkv']);
+const isAllowedVideo = (file) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  return VIDEO_EXTS.has(ext);
+};
+
+const uploadImages = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 10,
+  },
+  fileFilter: (req, file, cb) => {
+    if (!isAllowedImage(file)) {
+      return cb(new Error('Only JPEG images are allowed.'));
+    }
+    cb(null, true);
+  }
+});
+
+// Used for project creation: handles both image files and one video file
+const uploadProjectMedia = multer({
+  storage: projectMediaStorage,
+  limits: {
+    fileSize: 500 * 1024 * 1024,
+    files: 11, // up to 10 images + 1 video
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === 'video') {
+      if (!isAllowedVideo(file)) {
+        return cb(new Error('Only MP4, WebM, MOV, AVI, or MKV video files are allowed.'));
+      }
+    } else {
+      if (!isAllowedImage(file)) {
+        return cb(new Error('Only JPEG images are allowed.'));
+      }
+    }
+    cb(null, true);
+  }
+});
+
+// Chunked video upload — each chunk stored in /tmp/video-chunks/<uploadId>/
+const UPLOAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const chunkStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadId = req.body.uploadId;
+    if (!uploadId || !UPLOAD_ID_RE.test(uploadId)) {
+      return cb(new Error('Invalid uploadId'));
+    }
+    const dir = path.join('/tmp', 'video-chunks', uploadId);
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const idx = parseInt(req.body.chunkIndex, 10);
+    if (isNaN(idx) || idx < 0) return cb(new Error('Invalid chunkIndex'));
+    cb(null, `chunk-${String(idx).padStart(6, '0')}`);
+  },
+});
+const uploadChunk = multer({
+  storage: chunkStorage,
+  limits: { fileSize: 55 * 1024 * 1024, files: 1 },
+});
+
+// Resume upload — single PDF stored as uploads/resume.pdf (overwrites previous)
+const resumeStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    fs.mkdirSync(uploadsRoot, { recursive: true });
+    cb(null, uploadsRoot);
+  },
+  filename: function (req, file, cb) {
+    cb(null, 'resume.pdf');
+  }
+});
+
+const uploadResume = multer({
+  storage: resumeStorage,
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== 'application/pdf') {
+      return cb(new Error('Only PDF files are allowed for the resume.'));
+    }
+    cb(null, true);
+  }
+});
+
+app.get('/api/resume', (req, res) => {
+  const resumePath = path.join(uploadsRoot, 'resume.pdf');
+  if (!fs.existsSync(resumePath)) {
+    return res.status(404).json({ error: 'No resume uploaded yet.' });
+  }
+  res.sendFile(resumePath);
+});
+
+app.post('/api/resume', requireAdmin, uploadResume.single('resume'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+  const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
+  res.json({ url: `${baseUrl}/api/resume` });
+});
+
+// --- Chunked Video Upload Endpoints ---
+
+// Receive one chunk from the client
+app.post('/api/upload/video/chunk', requireAdmin, uploadChunk.single('chunk'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No chunk data received' });
+  res.json({ ok: true });
+});
+
+// Assemble all chunks into the final video file
+app.post('/api/upload/video/assemble', requireAdmin, async (req, res) => {
+  const { uploadId, originalFilename, totalChunks } = req.body;
+
+  if (!uploadId || !UPLOAD_ID_RE.test(uploadId)) {
+    return res.status(400).json({ error: 'Invalid uploadId' });
+  }
+  const total = parseInt(totalChunks, 10);
+  if (isNaN(total) || total < 1 || total > 200) {
+    return res.status(400).json({ error: 'Invalid totalChunks' });
+  }
+  const ext = path.extname(originalFilename || '').toLowerCase();
+  if (!VIDEO_EXTS.has(ext)) {
+    return res.status(400).json({ error: 'Invalid video extension' });
+  }
+
+  const chunkDir = path.join('/tmp', 'video-chunks', uploadId);
+  const finalFilename = `video-${Date.now()}${ext}`;
+  fs.mkdirSync(videosDir, { recursive: true });
+  const finalPath = path.join(videosDir, finalFilename);
+
+  // Verify all chunks exist before writing
+  for (let i = 0; i < total; i++) {
+    const chunkPath = path.join(chunkDir, `chunk-${String(i).padStart(6, '0')}`);
+    if (!fs.existsSync(chunkPath)) {
+      return res.status(400).json({ error: `Missing chunk ${i}` });
+    }
+  }
+
+  let writeStream = null;
+  try {
+    writeStream = fs.createWriteStream(finalPath);
+    for (let i = 0; i < total; i++) {
+      const chunkPath = path.join(chunkDir, `chunk-${String(i).padStart(6, '0')}`);
+      await new Promise((resolve, reject) => {
+        const readStream = fs.createReadStream(chunkPath);
+        readStream.on('error', reject);
+        readStream.on('end', resolve);
+        readStream.pipe(writeStream, { end: false });
+      });
+    }
+    await new Promise((resolve, reject) => {
+      writeStream.end();
+      writeStream.once('finish', resolve);
+      writeStream.once('error', reject);
+    });
+
+    fs.rmSync(chunkDir, { recursive: true, force: true });
+
+    const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
+    res.json({ url: `${baseUrl}/uploads/videos/${finalFilename}` });
+  } catch (err) {
+    if (writeStream) writeStream.destroy();
+    try { if (fs.existsSync(finalPath)) fs.unlinkSync(finalPath); } catch {}
+    try { fs.rmSync(chunkDir, { recursive: true, force: true }); } catch {}
+    logger.error('Error assembling video chunks', { err: err.message });
+    res.status(500).json({ error: 'Failed to assemble video' });
+  }
+});
+
+const RAW_EXTS = new Set(['.nef', '.dng', '.cr2', '.cr3', '.arw', '.rw2', '.orf', '.raf', '.srw']);
+const HEIC_EXTS = new Set(['.heic', '.heif']);
+const PHOTO_EXTS = new Set(['.jpg', '.jpeg', ...RAW_EXTS, ...HEIC_EXTS]);
+
+const isAllowedPhoto = (file) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  return PHOTO_EXTS.has(ext);
+};
+
+const uploadPhotos = multer({
+  storage: storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024,
+    files: 25,
+  },
+  fileFilter: (req, file, cb) => {
+    if (!isAllowedPhoto(file)) {
+      return cb(new Error('Only JPEG, RAW, or HEIC images are allowed.'));
+    }
+    cb(null, true);
+  }
+});
+
+// --- Site Content Endpoints ---
+// Public read: returns every key, falling back to the compiled-in default so
+// the site still renders correctly if a row was never seeded.
+app.get('/api/content', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT key, value FROM site_content');
+    const content = { ...CONTENT_DEFAULTS };
+    for (const row of rows) {
+      if (CONTENT_KEYS.has(row.key)) content[row.key] = row.value;
+    }
+    res.set('Cache-Control', 'public, max-age=30');
+    res.json(content);
+  } catch (err) {
+    logger.error('Error reading site content', { err: err.message });
+    // Never fail the page render over copy — fall back to defaults.
+    res.json({ ...CONTENT_DEFAULTS });
+  }
+});
+
+// Admin bulk update. Accepts a partial map; unknown keys are rejected outright
+// so the table can't be used as arbitrary storage.
+app.put('/api/content', requireAdmin, async (req, res) => {
+  const updates = req.body || {};
+  const entries = Object.entries(updates);
+  if (!entries.length) return res.status(400).json({ error: 'No content supplied' });
+
+  const unknown = entries.filter(([k]) => !CONTENT_KEYS.has(k)).map(([k]) => k);
+  if (unknown.length) {
+    return res.status(400).json({ error: `Unknown content keys: ${unknown.join(', ')}` });
+  }
+  const tooLong = entries.filter(([, v]) => typeof v === 'string' && v.length > CONTENT_MAX_LEN);
+  if (tooLong.length) {
+    return res.status(400).json({ error: `Value too long for: ${tooLong.map(([k]) => k).join(', ')}` });
+  }
+  const badType = entries.filter(([, v]) => typeof v !== 'string');
+  if (badType.length) {
+    return res.status(400).json({ error: `Values must be strings: ${badType.map(([k]) => k).join(', ')}` });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO site_content (key, value, updated_at)
+       SELECT k, v, NOW() FROM UNNEST($1::text[], $2::text[]) AS t(k, v)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [entries.map(([k]) => k), entries.map(([, v]) => v)]
+    );
+    const { rows } = await pool.query('SELECT key, value FROM site_content');
+    const content = { ...CONTENT_DEFAULTS };
+    for (const row of rows) {
+      if (CONTENT_KEYS.has(row.key)) content[row.key] = row.value;
+    }
+    res.json(content);
+  } catch (err) {
+    logger.error('Error updating site content', { err: err.message });
+    res.status(500).json({ error: 'Failed to update site content' });
+  }
+});
+
+// Restore one key to its shipped default.
+app.delete('/api/content/:key', requireAdmin, async (req, res) => {
+  const { key } = req.params;
+  if (!CONTENT_KEYS.has(key)) return res.status(404).json({ error: 'Unknown content key' });
+  try {
+    await pool.query(
+      `INSERT INTO site_content (key, value, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [key, CONTENT_DEFAULTS[key]]
+    );
+    res.json({ key, value: CONTENT_DEFAULTS[key] });
+  } catch (err) {
+    logger.error('Error resetting site content', { err: err.message });
+    res.status(500).json({ error: 'Failed to reset content key' });
+  }
+});
+
+// Remove every file a photo row points at: the original, its derivatives, and
+// any RAW source. Paths come from the DB rather than being recomputed, so a
+// rename in the derivative naming scheme can never orphan old files.
+const uploadsDirAbs = path.resolve(__dirname, 'uploads');
+
+const deleteUploadByUrl = (fileUrl) => {
+  if (!fileUrl) return;
+  try {
+    const filename = path.basename(new URL(fileUrl).pathname);
+    const filePath = path.join(uploadsDirAbs, filename);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (e) {
+    logger.warn('Failed to delete upload file', { url: fileUrl, err: e.message });
+  }
+};
+
+const deletePhotoFiles = (photo) => {
+  deleteUploadByUrl(photo.image_url);
+  deleteUploadByUrl(photo.raw_url);
+  deleteUploadByUrl(photo.thumb_url);
+  deleteUploadByUrl(photo.display_url);
+  if (photo.storage_key) {
+    // storage_key may sit under uploads/raw/, so resolve and bounds-check it.
+    const storagePath = path.resolve(uploadsDirAbs, photo.storage_key);
+    if (storagePath.startsWith(uploadsDirAbs + path.sep)) {
+      try {
+        if (fs.existsSync(storagePath)) fs.unlinkSync(storagePath);
+      } catch (e) {
+        logger.warn('Failed to delete storage_key file', { key: photo.storage_key, err: e.message });
+      }
+    }
+  }
+};
 
 // --- Photos Endpoints ---
 // List photos
 app.get('/api/photos', async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM photos ORDER BY created_at DESC NULLS LAST, id DESC'
-    );
+    const result = await pool.query(`
+      SELECT
+        MIN(id) AS id,
+        MIN(title) AS title,
+        MIN(caption) AS caption,
+        MIN(upload_group_id) AS upload_group_id,
+        COALESCE(
+          array_agg(image_url ORDER BY created_at ASC, id ASC) FILTER (WHERE image_url IS NOT NULL),
+          ARRAY[]::text[]
+        ) AS image_urls,
+        -- Derivatives fall back to the original so a photo whose thumbnail has
+        -- not been generated yet still renders instead of vanishing.
+        COALESCE(
+          array_agg(COALESCE(thumb_url, image_url) ORDER BY created_at ASC, id ASC)
+            FILTER (WHERE image_url IS NOT NULL),
+          ARRAY[]::text[]
+        ) AS thumb_urls,
+        COALESCE(
+          array_agg(COALESCE(display_url, image_url) ORDER BY created_at ASC, id ASC)
+            FILTER (WHERE image_url IS NOT NULL),
+          ARRAY[]::text[]
+        ) AS display_urls,
+        COALESCE(
+          array_agg(COALESCE(bytes, 0) ORDER BY created_at ASC, id ASC)
+            FILTER (WHERE image_url IS NOT NULL),
+          ARRAY[]::bigint[]
+        ) AS image_bytes,
+        COUNT(*) FILTER (WHERE image_url IS NULL) AS pending_count,
+        MIN(created_at) AS created_at
+      FROM photos
+      GROUP BY COALESCE(upload_group_id, id::text)
+      ORDER BY MIN(created_at) DESC NULLS LAST, MIN(id) DESC
+    `);
     res.json(result.rows);
   } catch (err) {
     console.error('Error executing query', err.stack);
@@ -115,48 +531,42 @@ app.get('/api/photos', async (req, res) => {
   }
 });
 
-// Create photo (supports RAW/HEIC -> JPEG conversion and deletes originals)
-app.post('/api/photos', requireAdmin, upload.single('photo'), async (req, res) => {
-  const { title = null, caption = null } = req.body || {};
-  const file = req.file;
-  if (!file) return res.status(400).json({ error: 'Missing photo file' });
+const processPhotoFile = async (file, baseUrl) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const isJpeg = ext === '.jpg' || ext === '.jpeg';
+  if (isJpeg) {
+    return {
+      imageUrl: `${baseUrl}/uploads/${file.filename}`,
+      rawUrl: null,
+      storageKey: file.filename,
+    };
+  }
+  return {
+    imageUrl: null,
+    rawUrl: null,
+    storageKey: path.posix.join('raw', file.filename),
+  };
+};
+
+// Create photos (supports RAW/HEIC -> JPEG conversion and deletes originals)
+app.post('/api/photos', requireAdmin, uploadLimiter, uploadPhotos.array('photos'), async (req, res) => {
+  const { title = null, caption = null, upload_group_id = null } = req.body || {};
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'Missing photo files' });
 
   const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
-  const uploadsDir = path.resolve(__dirname, 'uploads');
-
-  let imageUrl = null;
-  let rawUrl = null;
-  const originalExt = path.extname(file.originalname || '').toLowerCase();
-  const isRaw = ['.nef', '.dng', '.cr2', '.cr3', '.arw', '.rw2', '.orf', '.raf', '.srw'].includes(originalExt);
-  const isHeic = originalExt === '.heic' || originalExt === '.heif' || (file.mimetype && (file.mimetype.includes('heic') || file.mimetype.includes('heif')));
-
   try {
-    if (isRaw) {
-      // Convert RAW to JPEG preview via exiftool-vendored, then delete original
-      const jpegName = `photo-${Date.now()}.jpg`;
-      const jpegPath = path.join(uploadsDir, jpegName);
-      await exiftool.extractJpgFromRaw(file.path, jpegPath);
-      imageUrl = `${baseUrl}/uploads/${jpegName}`;
-      try { fs.unlinkSync(file.path); } catch (e) { console.warn('Failed to delete original raw file', e); }
-      rawUrl = null;
-    } else if (isHeic) {
-      // Convert HEIC/HEIF to JPEG via sharp, then delete original
-      const jpegName = `photo-${Date.now()}.jpg`;
-      const jpegPath = path.join(uploadsDir, jpegName);
-      await sharp(file.path).rotate().jpeg({ quality: 90 }).toFile(jpegPath);
-      imageUrl = `${baseUrl}/uploads/${jpegName}`;
-      try { fs.unlinkSync(file.path); } catch (e) { console.warn('Failed to delete original HEIC/HEIF file', e); }
-      rawUrl = null;
-    } else {
-      // Use the uploaded image as-is
-      imageUrl = `${baseUrl}/uploads/${file.filename}`;
+    const uploadGroupId = upload_group_id || crypto.randomUUID();
+    const inserted = [];
+    for (const file of files) {
+      const { imageUrl, rawUrl, storageKey } = await processPhotoFile(file, baseUrl);
+      const result = await pool.query(
+        'INSERT INTO photos (title, caption, image_url, raw_url, upload_group_id, storage_key) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [title, caption, imageUrl, rawUrl, uploadGroupId, storageKey]
+      );
+      inserted.push(result.rows[0]);
     }
-
-    const result = await pool.query(
-      'INSERT INTO photos (title, caption, image_url, raw_url) VALUES ($1, $2, $3, $4) RETURNING *',
-      [title, caption, imageUrl, rawUrl]
-    );
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({ upload_group_id: uploadGroupId, photos: inserted });
   } catch (err) {
     console.error('Error processing photo upload', err);
     res.status(500).json({ error: 'Failed to process photo upload' });
@@ -169,7 +579,16 @@ app.get('/api/photos/:id', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM photos WHERE id = $1', [id]);
     if (result.rows.length === 0) return res.status(404).send('Photo not found');
-    res.json(result.rows[0]);
+    const photo = result.rows[0];
+    if (photo.upload_group_id) {
+      const group = await pool.query(
+        'SELECT * FROM photos WHERE upload_group_id = $1 ORDER BY created_at ASC, id ASC',
+        [photo.upload_group_id]
+      );
+      res.json({ photo, group: group.rows });
+    } else {
+      res.json({ photo, group: [photo] });
+    }
   } catch (err) {
     console.error('Error executing query', err.stack);
     res.status(500).send('Server Error');
@@ -199,6 +618,46 @@ app.put('/api/photos/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Update title/caption for every photo in an upload group.
+// The gallery presents a group as a single card, so metadata edits have to
+// apply to the whole group rather than to whichever row happened to be first.
+app.put('/api/photos/group/:groupId', requireAdmin, async (req, res) => {
+  const { groupId } = req.params;
+  const { title = null, caption = null } = req.body || {};
+  try {
+    const result = await pool.query(
+      `UPDATE photos
+          SET title = $1, caption = $2
+        WHERE upload_group_id = $3
+        RETURNING id`,
+      [title, caption, groupId]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Photo group not found' });
+    res.json({ upload_group_id: groupId, updated: result.rowCount });
+  } catch (err) {
+    logger.error('Error updating photo group', { err: err.message });
+    res.status(500).json({ error: 'Failed to update photo group' });
+  }
+});
+
+// Delete all photos in an upload group
+app.delete('/api/photos/group/:groupId', requireAdmin, async (req, res) => {
+  const { groupId } = req.params;
+  try {
+    const check = await pool.query('SELECT * FROM photos WHERE upload_group_id = $1', [groupId]);
+    if (check.rows.length === 0) return res.status(404).send('Photo group not found');
+
+    await pool.query('DELETE FROM photos WHERE upload_group_id = $1', [groupId]);
+    for (const photo of check.rows) {
+      deletePhotoFiles(photo);
+    }
+    res.status(204).end();
+  } catch (err) {
+    console.error('Error executing query', err.stack);
+    res.status(500).send('Server Error');
+  }
+});
+
 // Delete photo (and attempt to delete files)
 app.delete('/api/photos/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
@@ -207,21 +666,8 @@ app.delete('/api/photos/:id', requireAdmin, async (req, res) => {
     if (check.rows.length === 0) return res.status(404).send('Photo not found');
     const photo = check.rows[0];
 
-    const uploadsDir = path.resolve(__dirname, 'uploads');
-    const deleteIfExists = (fileUrl) => {
-      try {
-        if (!fileUrl) return;
-        const filename = path.basename(new URL(fileUrl).pathname);
-        const filePath = path.join(uploadsDir, filename);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch (e) {
-        console.warn('Failed to delete file for photo', e);
-      }
-    };
-
     await pool.query('DELETE FROM photos WHERE id = $1', [id]);
-    deleteIfExists(photo.image_url);
-    deleteIfExists(photo.raw_url);
+    deletePhotoFiles(photo);
     res.status(204).end();
   } catch (err) {
     console.error('Error executing query', err.stack);
@@ -229,16 +675,8 @@ app.delete('/api/photos/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// Graceful shutdown of exiftool child process
-const stopExiftool = async () => {
-  try {
-    await exiftool.end();
-  } catch (e) {
-    logger.warn('Failed to end exiftool cleanly', e);
-  }
-};
-process.once('SIGINT', () => { stopExiftool().finally(() => process.exit(0)); });
-process.once('SIGTERM', () => { stopExiftool().finally(() => process.exit(0)); });
+process.once('SIGINT', () => process.exit(0));
+process.once('SIGTERM', () => process.exit(0));
 
 // 2. Create an Express App
 // This line creates an instance of the Express application. The `app` variable
@@ -273,20 +711,15 @@ const initDb = async () => {
         title VARCHAR(255) NOT NULL,
         description TEXT,
         image_url TEXT,
-        project_url TEXT
+        project_url TEXT,
+        video_url TEXT
       );
     `);
 
-    const res = await pool.query('SELECT * FROM projects');
-    if (res.rowCount === 0) {
-      await pool.query(`
-        INSERT INTO projects (title, description, image_url, project_url) VALUES
-        ('OffCampus Clark', 'Apartment Listing website built for the Clark University Department of Residential Life and Housing', 'https://placehold.co/600x400/5A67D8/EBF4FF?text=OffCampus+Clark', 'https://github.com/rkutyna'),
-        ('AI Research Project', 'A project exploring machine learning models for natural language understanding.', 'https://placehold.co/600x400/38B2AC/E6FFFA?text=AI+Research', 'https://github.com/rkutyna'),
-        ('Personal Blog Engine', 'A lightweight, custom-built blog platform using Node.js and Markdown.', 'https://placehold.co/600x400/ED8936/FFF5EB?text=Blog+Engine', 'https://github.com/rkutyna');
-      `);
-      console.log('Database seeded with initial project data.');
-    }
+    await pool.query(`
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS video_url TEXT;
+    `);
+
 
 
     // Check if the blog table exists
@@ -329,21 +762,84 @@ const initDb = async () => {
         caption TEXT,
         image_url TEXT NOT NULL,
         raw_url TEXT,
+        storage_key TEXT,
+        upload_group_id TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
 
-    const res2 = await pool.query('SELECT * FROM blogs');
-    if (res2.rowCount === 0) {
-      var currentTime = new Date();
-      await pool.query(`
-        INSERT INTO blogs (title, content, image_url, date) VALUES
-        ('OffCampus Clark', 'Apartment Listing website built for the Clark University Department of Residential Life and Housing', 'https://placehold.co/600x400/5A67D8/EBF4FF?text=OffCampus+Clark', NOW()),
-        ('AI Research Project', 'A project exploring machine learning models for natural language understanding.', 'https://placehold.co/600x400/38B2AC/E6FFFA?text=AI+Research', NOW()),
-        ('Personal Blog Engine', 'A lightweight, custom-built blog platform using Node.js and Markdown.', 'https://placehold.co/600x400/ED8936/FFF5EB?text=Blog+Engine', NOW());
-      `);
-      console.log('Database seeded with initial blog data.');
-    }
+    await pool.query(`
+      ALTER TABLE photos
+      ADD COLUMN IF NOT EXISTS upload_group_id TEXT;
+    `);
+
+    await pool.query(`
+      ALTER TABLE photos
+      ADD COLUMN IF NOT EXISTS storage_key TEXT;
+    `);
+
+    // Derivative image columns: small thumbnail + web-sized display copy.
+    // The original stays on disk and is linked as a full-resolution download.
+    await pool.query(`
+      ALTER TABLE photos
+      ADD COLUMN IF NOT EXISTS thumb_url TEXT,
+      ADD COLUMN IF NOT EXISTS display_url TEXT,
+      ADD COLUMN IF NOT EXISTS width INTEGER,
+      ADD COLUMN IF NOT EXISTS height INTEGER,
+      ADD COLUMN IF NOT EXISTS bytes BIGINT,
+      ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS derivatives_failed BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS photos_group_idx ON photos(upload_group_id);
+    `);
+
+    // Editable site copy: every string the admin can change lives here as a
+    // key/value row so it can be edited without a rebuild.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS site_content (
+        key VARCHAR(64) PRIMARY KEY,
+        value TEXT NOT NULL DEFAULT '',
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // Seed defaults only when a key is absent, so edits are never overwritten.
+    const seedRows = Object.entries(CONTENT_DEFAULTS);
+    await pool.query(
+      `INSERT INTO site_content (key, value)
+       SELECT * FROM UNNEST($1::text[], $2::text[])
+       ON CONFLICT (key) DO NOTHING`,
+      [seedRows.map(([k]) => k), seedRows.map(([, v]) => v)]
+    );
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS page_views (
+        id SERIAL PRIMARY KEY,
+        resource_type VARCHAR(20) NOT NULL,
+        resource_id INTEGER NOT NULL,
+        viewed_at TIMESTAMPTZ DEFAULT NOW(),
+        is_bot BOOLEAN NOT NULL DEFAULT FALSE,
+        ip_hash TEXT,
+        user_agent TEXT,
+        country CHAR(2),
+        city VARCHAR(100)
+      );
+    `);
+
+    await pool.query(`
+      ALTER TABLE page_views ADD COLUMN IF NOT EXISTS country CHAR(2);
+    `);
+
+    await pool.query(`
+      ALTER TABLE page_views ADD COLUMN IF NOT EXISTS city VARCHAR(100);
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS page_views_resource_idx ON page_views(resource_type, resource_id);
+    `);
+
   } catch (err) {
     console.error('Error initializing database', err.stack);
   }
@@ -407,30 +903,39 @@ app.get('/api/blogs', async (req, res) => {
   }
 });
 
-// API endpoint to CREATE a new project with an image upload
-app.post('/api/projects', requireAdmin, upload.array('images'), async (req, res) => {
+// API endpoint to CREATE a new project with image and optional video upload
+app.post('/api/projects', requireAdmin, uploadLimiter, uploadProjectMedia.fields([
+  { name: 'images', maxCount: 10 },
+  { name: 'video', maxCount: 1 },
+]), async (req, res) => {
   const { title, description, project_url } = req.body;
-  const files = req.files || [];
-  const MAX_FILES = 50;
-  const safeFiles = Array.isArray(files) ? files.slice(0, MAX_FILES) : [];
+  const imageFiles = (req.files && req.files['images']) || [];
+  const videoFile = req.files && req.files['video'] && req.files['video'][0];
+  const MAX_IMAGES = 10;
+  const safeImageFiles = imageFiles.slice(0, MAX_IMAGES);
   const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
-  const imageUrls = safeFiles.map(f => `${baseUrl}/uploads/${f.filename}`);
+  const imageUrls = safeImageFiles.map(f => `${baseUrl}/uploads/${f.filename}`);
   const firstImage = imageUrls[0] || null;
-
-  if (safeFiles.length > 0 && !process.env.API_SERVER_URL) {
-    console.warn('API_SERVER_URL is not set. Falling back to request host for image URLs.');
+  let videoUrl = null;
+  if (videoFile) {
+    videoUrl = `${baseUrl}/uploads/videos/${videoFile.filename}`;
+  } else if (req.body.video_url) {
+    // Accept a pre-uploaded URL only if it points to our own /uploads/videos/ path
+    const allowedPrefix = `${baseUrl}/uploads/videos/`;
+    if (req.body.video_url.startsWith(allowedPrefix)) {
+      videoUrl = req.body.video_url;
+    }
   }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const insertProject = await client.query(
-      'INSERT INTO projects (title, description, image_url, project_url) VALUES ($1, $2, $3, $4) RETURNING *',
-      [title, description, firstImage, project_url]
+      'INSERT INTO projects (title, description, image_url, project_url, video_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [title, description, firstImage, project_url, videoUrl]
     );
     const project = insertProject.rows[0];
 
-    // Insert images
     for (let i = 0; i < imageUrls.length; i++) {
       await client.query(
         'INSERT INTO project_images (project_id, image_url, position) VALUES ($1, $2, $3)',
@@ -439,7 +944,6 @@ app.post('/api/projects', requireAdmin, upload.array('images'), async (req, res)
     }
     await client.query('COMMIT');
 
-    // Return with images array
     project.images = imageUrls;
     res.status(201).json(project);
   } catch (err) {
@@ -452,11 +956,11 @@ app.post('/api/projects', requireAdmin, upload.array('images'), async (req, res)
 });
 
 // API endpoint to CREATE a new blog with an image upload
-  const MAX_FILES = 50;
-  const safeFiles = Array.isArray(files) ? files.slice(0, MAX_FILES) : [];
-app.post('/api/blogs', requireAdmin, upload.array('images'), async (req, res) => {
+app.post('/api/blogs', requireAdmin, uploadLimiter, uploadImages.array('images'), async (req, res) => {
   const { title, content } = req.body;
   const files = req.files || [];
+  const MAX_FILES = 50;
+  const safeFiles = Array.isArray(files) ? files.slice(0, MAX_FILES) : [];
   const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
   const imageUrls = safeFiles.map(f => `${baseUrl}/uploads/${f.filename}`);
   const firstImage = imageUrls[0] || null;
@@ -613,19 +1117,27 @@ app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // First, check if the project exists
     const checkProject = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
     if (checkProject.rows.length === 0) {
       return res.status(404).send('Project not found');
     }
+    const project = checkProject.rows[0];
 
-    const result = await pool.query (
-      'DELETE FROM projects WHERE id = $1 RETURNING *', [id]
-    );
+    await pool.query('DELETE FROM projects WHERE id = $1', [id]);
+
+    // Clean up video file if present
+    if (project.video_url) {
+      try {
+        const videoFilename = path.basename(new URL(project.video_url).pathname);
+        const videoPath = path.join(videosDir, videoFilename);
+        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+      } catch (e) {
+        console.warn('Failed to delete video file for project', e);
+      }
+    }
 
     res.status(204).end();
-  } 
-  catch (err) {
+  } catch (err) {
     console.error('Error executing query', err.stack);
     res.status(500).send('Server Error');
   }
@@ -654,6 +1166,84 @@ app.delete('/api/blogs/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Analytics ---
+const BOT_UA_RE = /bot|crawler|spider|scraper|slurp|facebookexternalhit|twitterbot|linkedinbot|embedly|pinterest|slackbot|whatsapp|googlebot|bingbot|yandexbot|baiduspider|duckduckbot|ia_archiver|semrushbot|ahrefsbot|mj12bot|dotbot|rogerbot|sogou|archive\.org_bot|python-requests|python-urllib|curl\/|wget\/|go-http-client|java\/|okhttp|axios\/|node-fetch|libwww|scrapy/i;
+
+const analyticsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post('/api/analytics/view', analyticsLimiter, async (req, res) => {
+  const { resource_type, resource_id } = req.body || {};
+  if (!['project', 'blog', 'photo'].includes(resource_type)) {
+    return res.status(400).json({ error: 'Invalid resource_type' });
+  }
+  const id = parseInt(resource_id, 10);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: 'Invalid resource_id' });
+  }
+  const ua = req.headers['user-agent'] || '';
+  const botDetected = !ua || BOT_UA_RE.test(ua);
+  const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0].trim() || '';
+  const ipHash = crypto.createHash('sha256').update(ip + 'pv_salt').digest('hex').slice(0, 16);
+  const geo = geoip.lookup(ip);
+  const country = geo?.country || null;
+  const city = geo?.city || null;
+  try {
+    await pool.query(
+      'INSERT INTO page_views (resource_type, resource_id, is_bot, ip_hash, user_agent, country, city) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [resource_type, id, botDetected, ipHash, ua.slice(0, 500), country, city]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error('Error recording page view', { err: err.message });
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/analytics', requireAdmin, async (req, res) => {
+  try {
+    const [resourceResult, countryResult] = await Promise.all([
+      pool.query(`
+        SELECT
+          pv.resource_type,
+          pv.resource_id,
+          COUNT(*) FILTER (WHERE NOT is_bot) AS human_views,
+          COUNT(*) FILTER (WHERE is_bot) AS bot_views,
+          COUNT(*) AS total_views,
+          MAX(pv.viewed_at) AS last_viewed_at,
+          CASE pv.resource_type
+            WHEN 'project' THEN p.title
+            WHEN 'blog' THEN b.title
+            ELSE NULL
+          END AS title
+        FROM page_views pv
+        LEFT JOIN projects p ON pv.resource_type = 'project' AND pv.resource_id = p.id
+        LEFT JOIN blogs b ON pv.resource_type = 'blog' AND pv.resource_id = b.id
+        GROUP BY pv.resource_type, pv.resource_id, p.title, b.title
+        ORDER BY human_views DESC
+      `),
+      pool.query(`
+        SELECT
+          country,
+          COUNT(*) FILTER (WHERE NOT is_bot) AS human_views,
+          COUNT(*) AS total_views
+        FROM page_views
+        WHERE country IS NOT NULL
+        GROUP BY country
+        ORDER BY human_views DESC
+      `),
+    ]);
+    res.json({ resources: resourceResult.rows, countries: countryResult.rows });
+  } catch (err) {
+    logger.error('Error fetching analytics', { err: err.message });
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Endpoint to receive client-side logs
 app.post('/api/client-logs', (req, res) => {
   if (!req.body || typeof req.body !== 'object') {
@@ -668,6 +1258,29 @@ app.post('/api/client-logs', (req, res) => {
 
   logger.log({ level, message, stack, ...meta });
   res.status(204).end();
+});
+
+// Multer/validation error handler (must be after routes)
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err && err.message === 'Only JPEG images are allowed.') {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err && err.message === 'Only JPEG, RAW, or HEIC images are allowed.') {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err && err.message === 'Only MP4, WebM, MOV, AVI, or MKV video files are allowed.') {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err && (err.message === 'Invalid uploadId' || err.message === 'Invalid chunkIndex')) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (err && err.message === 'Only PDF files are allowed for the resume.') {
+    return res.status(400).json({ error: err.message });
+  }
+  return next(err);
 });
 
 // 5. Start the Server
