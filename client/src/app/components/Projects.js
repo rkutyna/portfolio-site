@@ -3,11 +3,11 @@ import ProjectCard from './ProjectCard';
 import Link from 'next/link';
 
 // Accepts an object with a `projects` property (destructuring props).
-export default function Projects({ projects }) {
+export default function Projects({ projects = [], heading = 'Projects' }) {
   return (
     <section id="projects" className="py-10 scroll-mt-24">
       <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-center text-sky-100">
-        My Projects
+        {heading}
       </h2>
       <div className="mt-3 h-1 w-20 bg-sky-400/70 rounded mx-auto" />
       

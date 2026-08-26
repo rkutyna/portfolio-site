@@ -8,6 +8,7 @@ import Carousel from '../../components/Carousel';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
+import { formatDateTime } from '../../../lib/dates';
 
 export default function BlogPage() {
   // The `useParams` hook returns an object containing the route's dynamic parameters.
@@ -26,6 +27,12 @@ export default function BlogPage() {
         .then((res) => res.json())
         .then((data) => {
           setBlog(data);
+          // Record a page view — fire-and-forget, JS execution already filters most bots
+          fetch(`${process.env.NEXT_PUBLIC_API_URL}/analytics/view`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resource_type: 'blog', resource_id: params.id }),
+          }).catch(() => {});
         })
         .catch((error) => {
           console.error('Error fetching Blogs:', error);
@@ -55,12 +62,12 @@ export default function BlogPage() {
           </div>
         ) : null;
       })()}
-      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>
+      <div className="markdown-body text-slate-300 mb-6" style={{ tabSize: 4 }}>
         <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
           {blog.content || ''}
         </ReactMarkdown>
       </div>
-      <p className="text-sm text-slate-400">{new Date(blog.date).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+      <p className="text-sm text-slate-400">{formatDateTime(blog.date)}</p>
       </div>
     </div>
   );

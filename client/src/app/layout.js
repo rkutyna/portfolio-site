@@ -5,6 +5,7 @@ import Footer from "./components/Footer";
 import LoggerInit from "./components/LoggerInit";
 // Ensure logger runs in browser bundle and exposes window.logger
 import "../utils/logger";
+import { getContent } from "../lib/content";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,12 +17,18 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
-  title: "R. Kutyna | Full-Stack Developer Portfolio",
-  description: "A portfolio of full-stack development projects by R. Kutyna.",
-};
+// Title and description are admin-editable, so metadata is generated per
+// request rather than being a static export.
+export async function generateMetadata() {
+  const content = await getContent();
+  return {
+    title: content.site_title,
+    description: content.site_description,
+  };
+}
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  const content = await getContent();
   return (
     <html lang="en">
       <body
@@ -29,9 +36,9 @@ export default function RootLayout({ children }) {
       >
         {/* Initialize client-side logger */}
         <LoggerInit />
-        <Header />
+        <Header brandName={content.brand_name} />
         <main className="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8">{children}</main>
-        <Footer />
+        <Footer content={content} />
       </body>
     </html>
   );

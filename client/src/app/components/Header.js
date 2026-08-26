@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
-export default function Header() {
+export default function Header({ brandName = 'Roger Kutyna' }) {
     const [mobileOpen, setMobileOpen] = useState(false);
     return (
       // Sticky translucent header with a light blue theme
@@ -12,7 +12,7 @@ export default function Header() {
           <div className="flex justify-between items-center h-16">
             <div>
               <Link href="/" aria-label="Go to home" className="inline-block px-2 py-1 rounded-md text-xl sm:text-2xl font-bold tracking-tight text-sky-900 hover:bg-sky-200/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400">
-                Roger Kutyna
+                {brandName}
               </Link>
             </div>
             {/* Desktop nav */}

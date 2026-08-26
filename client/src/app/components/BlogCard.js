@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { formatDateTime } from '../../lib/dates';
 
 // This defines a new React component named BlogCard.
 export default function BlogCard({ title, content, imageUrl, date}) {
@@ -23,7 +24,7 @@ export default function BlogCard({ title, content, imageUrl, date}) {
         <p className="mt-2 text-slate-300 line-clamp-4">{content}</p>
         <p className="mt-3 inline-flex items-center gap-2 text-slate-400 text-sm">
           <span className="inline-block h-2 w-2 rounded-full bg-sky-400" aria-hidden></span>
-          {new Date(date).toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+          {formatDateTime(date)}
         </p>
       </div>
     </div>

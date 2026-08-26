@@ -26,6 +26,12 @@ export default function ProjectPage() {
         .then((res) => res.json())
         .then((data) => {
           setProject(data);
+          // Record a page view — fire-and-forget, JS execution already filters most bots
+          fetch(`${process.env.NEXT_PUBLIC_API_URL}/analytics/view`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resource_type: 'project', resource_id: params.id }),
+          }).catch(() => {});
         })
         .catch((error) => {
           console.error('Error fetching project:', error);
@@ -46,6 +52,18 @@ export default function ProjectPage() {
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-sm">
         <h1 className="text-3xl font-extrabold mb-4 text-sky-100">{project.title}</h1>
       
+      {/* Project Video */}
+      {project.video_url && (
+        <div className="mb-6 rounded-xl overflow-hidden border border-white/10 bg-black">
+          <video
+            src={project.video_url}
+            controls
+            className="w-full max-h-[480px]"
+            preload="metadata"
+          />
+        </div>
+      )}
+
       {/* Project Images Carousel */}
       {(() => {
         const images = (project.images && project.images.length) ? project.images : (project.image_url ? [project.image_url] : []);

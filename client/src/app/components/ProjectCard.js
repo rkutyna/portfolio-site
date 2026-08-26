@@ -1,3 +1,4 @@
+"use client";
 import Image from 'next/image';
 
 // This defines a new React component named ProjectCard.
