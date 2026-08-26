@@ -1,0 +1,12 @@
+{
+  "name": "photo-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "worker.js",
+  "dependencies": {
+    "exiftool-vendored": "^24.6.0",
+    "pg": "^8.12.0",
+    "sharp": "^0.33.4"
+  }
+}
