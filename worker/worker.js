@@ -7,6 +7,8 @@
 //   2. Derivatives — every photo with a real image but no thumb_url gets a
 //                    640px thumbnail and a 2048px display copy generated. This
 //                    also backfills photos uploaded before derivatives existed.
+//   3. Resume      — the resume PDF is rasterised to WebP page images so the
+//                    resume page can display it without a PDF embed.
 const { Pool } = require('pg');
 const { exiftool } = require('exiftool-vendored');
 const sharp = require('sharp');
@@ -14,6 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const derivatives = require('./derivatives');
+const resume = require('./resume');
 
 const POLL_MS = parseInt(process.env.WORKER_POLL_MS || '5000', 10);
 const BATCH_SIZE = parseInt(process.env.WORKER_BATCH || '5', 10);
@@ -179,12 +182,26 @@ const pollDerivatives = async () => {
 
 let running = false;
 
+// --- Job 3: resume PDF -> page images ------------------------------------
+
+const pollResume = async () => {
+  try {
+    const { rendered, pages } = await resume.render(UPLOADS_DIR);
+    if (rendered) console.log(`Resume rendered to ${pages} page image(s)`);
+  } catch (e) {
+    // Never let a bad PDF take the worker down; the resume page falls back to
+    // offering the raw PDF.
+    console.error('Failed to render resume pages', e.message);
+  }
+};
+
 const poll = async () => {
   if (running) return; // a slow batch must not overlap the next tick
   running = true;
   try {
     await pollConversions();
     await pollDerivatives();
+    await pollResume();
   } catch (e) {
     console.error('Worker poll failed', e);
   } finally {

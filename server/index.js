@@ -281,6 +281,38 @@ app.get('/api/resume', (req, res) => {
   res.sendFile(resumePath);
 });
 
+// Rendered page images for the resume, produced by the worker.
+//
+// The resume used to be embedded as a PDF via <object>/<iframe>, which the
+// browser blocks: the PDF is served from this origin but framed on the site's
+// origin, and helmet sends X-Frame-Options: SAMEORIGIN. Mobile browsers will
+// not inline-render a PDF embed regardless. Serving page images sidesteps both.
+app.get('/api/resume/pages', (req, res) => {
+  const manifestPath = path.join(uploadsRoot, 'resume-pages', 'manifest.json');
+  const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
+  try {
+    if (!fs.existsSync(manifestPath)) {
+      // Not rendered yet (or no resume uploaded). The client falls back to
+      // offering the PDF directly rather than showing an error.
+      return res.json({ pages: [], pending: fs.existsSync(path.join(uploadsRoot, 'resume.pdf')) });
+    }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json({
+      pages: (manifest.pages || []).map((page) => ({
+        url: `${baseUrl}/uploads/${page.key}`,
+        width: page.width,
+        height: page.height,
+      })),
+      renderedAt: manifest.renderedAt || null,
+      pending: false,
+    });
+  } catch (err) {
+    logger.error('Error reading resume manifest', { err: err.message });
+    res.json({ pages: [], pending: false });
+  }
+});
+
 app.post('/api/resume', requireAdmin, uploadResume.single('resume'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
   const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
