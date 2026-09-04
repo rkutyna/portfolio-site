@@ -903,7 +903,7 @@ app.get('/api/projects', async (req, res) => {
       FROM projects p
       LEFT JOIN project_images pi ON pi.project_id = p.id
       GROUP BY p.id
-      ORDER BY p.id ASC
+      ORDER BY p.id DESC
     `);
     res.json(result.rows);
   } catch (err) {
