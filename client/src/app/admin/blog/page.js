@@ -8,6 +8,7 @@ import AdminShell from "../AdminShell";
 import Toast from "../Toast";
 import Carousel from "../../components/Carousel";
 import { formatDate } from '../../../lib/dates';
+import { normalizeMarkdown } from '../../../lib/markdown';
 
 const EMPTY = { title: "", content: "", images: [] };
 
@@ -18,7 +19,7 @@ function MarkdownPreview({ value }) {
   }
   return (
     <div className="markdown-body text-slate-300">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{value}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{normalizeMarkdown(value)}</ReactMarkdown>
     </div>
   );
 }

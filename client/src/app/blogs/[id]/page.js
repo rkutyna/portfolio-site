@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { formatDateTime } from '../../../lib/dates';
+import { normalizeMarkdown } from '../../../lib/markdown';
 
 export default function BlogPage() {
   // The `useParams` hook returns an object containing the route's dynamic parameters.
@@ -64,7 +65,7 @@ export default function BlogPage() {
       })()}
       <div className="markdown-body text-slate-300 mb-6" style={{ tabSize: 4 }}>
         <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-          {blog.content || ''}
+          {normalizeMarkdown(blog.content)}
         </ReactMarkdown>
       </div>
       <p className="text-sm text-slate-400">{formatDateTime(blog.date)}</p>

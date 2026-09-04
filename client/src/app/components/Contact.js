@@ -4,6 +4,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
+import { normalizeMarkdown } from '../../lib/markdown';
 
 // Target for the "Contact" nav link, which previously pointed at a section that
 // did not exist on the page.
@@ -31,7 +32,7 @@ export default function Contact({ content }) {
       <div className="mt-8 max-w-3xl mx-auto rounded-2xl bg-white/10 backdrop-blur-xl border border-white/10 p-6 sm:p-8 shadow-sm text-center">
         {content.contact_body ? (
           <div className="markdown-body text-slate-300 mb-6">
-            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content.contact_body}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{normalizeMarkdown(content.contact_body)}</ReactMarkdown>
           </div>
         ) : null}
         {email ? (

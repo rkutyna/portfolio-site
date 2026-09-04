@@ -8,6 +8,7 @@ import Carousel from '../../components/Carousel';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
+import { normalizeMarkdown } from '../../../lib/markdown';
 
 export default function ProjectPage() {
   // The `useParams` hook returns an object containing the route's dynamic parameters.
@@ -74,9 +75,9 @@ export default function ProjectPage() {
         ) : null;
       })()}
 
-      <div className="text-lg text-slate-300 mb-6 whitespace-pre-wrap" style={{ tabSize: 4 }}>
+      <div className="markdown-body text-slate-300 mb-6" style={{ tabSize: 4 }}>
         <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-          {project.description || ''}
+          {normalizeMarkdown(project.description)}
         </ReactMarkdown>
       </div>
 
