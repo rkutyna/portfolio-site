@@ -35,11 +35,11 @@ export default async function Home() {
   return (
     <>
       <Hero content={content} />
-      <LatestPhotos />
       <About content={content} />
       <Projects projects={projects} heading={content.projects_heading} />
       <Blogs blogs={blogs} heading={content.blogs_heading} />
       <Contact content={content} />
+      <LatestPhotos />
     </>
   );
 }
