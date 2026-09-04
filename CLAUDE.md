@@ -100,6 +100,16 @@ npm install
 node index.js    # starts on port 3001; requires DB env vars
 ```
 
+## Dependency updates
+
+`server/package.json` pins `qs` to `^6.16.0` through an `overrides` block.
+Express 4 pulls `qs` transitively via `body-parser` and declares `~6.15.1`,
+which leaves it on a version carrying two moderate advisories. `npm audit fix`
+offers only Express 5 for this — a breaking framework upgrade out of proportion
+to a transitive patch — so the override exists to stay on Express 4. Do not run
+`npm audit fix --force` here without deciding to take the Express 5 migration on
+purpose, and keep the override when bumping Express within 4.x.
+
 ## Environment Variables
 
 A `.env` file in the repo root is required for Docker Compose. Minimum required:
@@ -133,7 +143,7 @@ Originals average ~10 MB; thumbnails average ~29 KB. Rendering originals directl
 
 ## Client Page Structure
 
-- `/` — home page: Hero, latest-photos teaser, About, Projects, Blogs, Contact (server-rendered)
+- `/` — home page: Hero, About, Projects, Blogs, Contact, latest-photos teaser (server-rendered)
 - `/projects/[id]` — individual project detail
 - `/blogs/[id]` — individual blog post (renders Markdown via `react-markdown` + `remark-gfm`)
 - `/photos` — photo gallery grid
@@ -155,6 +165,32 @@ All admin pages share `AdminShell` (`client/src/app/admin/AdminShell.js`) for na
 - Photo gallery uploads: JPEG, RAW (`.nef`, `.dng`, `.cr2`, `.cr3`, `.arw`, `.rw2`, `.orf`, `.raf`, `.srw`), or HEIC/HEIF; max 50MB per file, up to 25 files
 - JPEG photos go directly to `/uploads/`; non-JPEG go to `/uploads/raw/` and are queued for conversion by the worker
 - `/uploads/raw/` is blocked from public HTTP access by the server
+
+## Rendering author-written Markdown
+
+Project descriptions, blog posts and the About/Contact copy are written with a
+leading tab on each paragraph. CommonMark reads a leading tab (or four spaces)
+as an indented code block, so that copy renders as monospace text in a `<pre>`
+that will not wrap unless it is normalized first.
+
+Pass every piece of author-written copy through `normalizeMarkdown()`
+(`client/src/lib/markdown.js`) before handing it to `react-markdown`. It strips
+the indent that triggers a code block while preserving the indentation Markdown
+genuinely needs: fenced blocks stay verbatim, sibling bullets stay flat, and
+nested items and list continuations keep their indent. It also normalizes CRLF,
+which the editor posts.
+
+Any new Markdown surface needs two things, or it will not match the rest of the
+site:
+
+1. `normalizeMarkdown()` around the content, the admin live preview included, so
+   the editor shows what will publish.
+2. The `markdown-body` class on the container — it supplies the heading, list,
+   link, blockquote and inline-code styling. A surface without it renders `###`
+   headings at body size, because Tailwind's preflight resets them.
+
+The current render sites are the project and blog detail pages, `About`,
+`Contact`, and the admin blog preview.
 
 ## Server-side rendering
 
