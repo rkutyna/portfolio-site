@@ -8,7 +8,7 @@ const apiBase = () =>
 
 async function getResumePages() {
   try {
-    const res = await fetch(`${apiBase()}/resume/pages`, { next: { revalidate: 30 } });
+    const res = await fetch(`${apiBase()}/resume/pages`, { next: { revalidate: 3600 } });
     if (!res.ok) throw new Error(`resume/pages responded ${res.status}`);
     return await res.json();
   } catch (err) {

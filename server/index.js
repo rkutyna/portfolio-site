@@ -72,6 +72,36 @@ const requireAdmin = (req, res, next) => {
   });
 };
 
+// After any successful admin write, tell the Next.js app to drop its cached
+// pages. They are cached for an hour, so without this a new post would not
+// appear until the cache aged out. Registered ahead of the routes so it sees
+// every write; `req.admin` is set by requireAdmin once the route has run.
+// Debounced so a burst (e.g. chunked video upload, then the project itself)
+// flushes once.
+let revalidateTimer = null;
+const scheduleRevalidate = () => {
+  const url = process.env.REVALIDATE_URL;
+  const secret = process.env.REVALIDATE_SECRET;
+  if (!url || !secret) return;
+  clearTimeout(revalidateTimer);
+  revalidateTimer = setTimeout(() => {
+    fetch(url, { method: 'POST', headers: { 'x-revalidate-secret': secret } })
+      .then((r) => {
+        if (!r.ok) logger.warn('Page cache revalidation was refused', { status: r.status });
+      })
+      .catch((err) => logger.warn('Page cache revalidation failed', { err: err.message }));
+  }, 300);
+};
+
+app.use((req, res, next) => {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    res.on('finish', () => {
+      if (req.admin && res.statusCode < 400) scheduleRevalidate();
+    });
+  }
+  next();
+});
+
 // HTTP request logging via morgan (writes through winston)
 morgan.token('client-ip', (req) => req.ip || req.headers['x-forwarded-for'] || 'unknown');
 const morganFormat = ':client-ip :method :url :status :res[content-length] - :response-time ms';

@@ -101,9 +101,11 @@ const serverApiBase = () =>
 export async function getContent() {
   try {
     const res = await fetch(`${serverApiBase()}/content`, {
-      // Copy changes rarely and is edited by one person; a short revalidate
-      // keeps pages cheap without making edits feel stuck.
-      next: { revalidate: 30 },
+      // Copy only changes through the admin, which flushes this cache on save
+      // (see app/api/revalidate), so the hour is just a backstop. A shorter
+      // value here would also shorten every page's cache, since a route
+      // revalidates as often as its most frequent fetch.
+      next: { revalidate: 3600 },
     });
     if (!res.ok) throw new Error(`content responded ${res.status}`);
     const data = await res.json();

@@ -123,6 +123,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 API_SERVER_URL=http://localhost:3001
 ADMIN_SECRET_KEY=<your-secret>
 JWT_SECRET=<your-jwt-secret>
+REVALIDATE_SECRET=<openssl rand -hex 32>
 PORTFOLIO_DB_USER=myuser
 PORTFOLIO_DB_PASSWORD=password
 PORTFOLIO_DB_NAME=portfolio_db
@@ -200,13 +201,40 @@ pasted URL visibly becomes a link before publishing.
 ## Server-side rendering
 
 The home page, layout and resume page are React Server Components and fetch from
-the API on the server. The home page is `force-dynamic` with `no-store` fetches:
-under ISR (`revalidate: 30`, stale-while-revalidate) the first visits after
-publishing got the pre-publish page, so a new post looked missing. The layout
-and resume page still use `revalidate: 30`. Inside Docker they use
+the API on the server. Inside Docker they use
 `INTERNAL_API_URL` (`http://server:3001/api`) so SSR does not leave the host and
 come back through Cloudflare. `getContent()` never throws — on any failure it
 returns `CONTENT_DEFAULTS`, so a page always renders.
+
+### Page cache and on-demand revalidation
+
+Server-rendered pages are cached by Next.js for an hour (`revalidate: 3600` on
+the page and on every server-side fetch — a route revalidates as often as its
+most frequent fetch, so one short value anywhere shortens the whole page).
+Cloudflare does not cache the HTML (`cf-cache-status: DYNAMIC`); this is
+Next.js's own cache inside the client container.
+
+The hour is only a backstop. Freshness comes from three hooks:
+
+1. **Admin writes.** Middleware in `server/index.js` watches every non-GET
+   request; when one passes `requireAdmin` and succeeds, the API POSTs to
+   `REVALIDATE_URL` (`http://client:3000/api/revalidate`, over the Docker
+   network), debounced by 300ms. That route
+   (`client/src/app/api/revalidate/route.js`) checks `REVALIDATE_SECRET` and
+   calls `revalidatePath("/", "layout")`, so the next visit renders fresh. New
+   admin routes get this for free as long as they use `requireAdmin`.
+2. **Boot.** `client/src/instrumentation.js` flushes the cache once the server
+   is listening. `next build` prerenders the home page with whatever the API
+   returned at build time — empty lists when the builder cannot reach it — and
+   without the flush that snapshot would be served for an hour after a deploy.
+3. **Failed fetches throw.** `getList()` in `app/page.js` throws at runtime
+   instead of returning `[]`, so a regeneration during an API outage keeps the
+   last good page rather than caching an empty one. (At build time it returns
+   `[]` so the build never fails.) With nothing cached and the API down, the
+   home page errors until the API is back.
+
+`REVALIDATE_SECRET` must be set in `.env` for both hooks 1 and 2; without it,
+pages only refresh on the hourly backstop.
 
 Dates are formatted through `client/src/lib/dates.js`, which pins the time zone.
 Formatting with the host's zone made the server (UTC) and the browser disagree

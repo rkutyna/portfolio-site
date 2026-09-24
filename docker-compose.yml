@@ -33,6 +33,11 @@ services:
       - DB_PORT=5432
       - ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY}
       - JWT_SECRET=${JWT_SECRET}
+      # Flushes the client's page cache after admin writes (see
+      # client/src/app/api/revalidate). Without the secret, pages still
+      # refresh on their one-hour backstop.
+      - REVALIDATE_URL=http://client:3000/api/revalidate
+      - REVALIDATE_SECRET=${REVALIDATE_SECRET}
     depends_on:
       db:
         condition: service_healthy
@@ -49,6 +54,7 @@ services:
       # Server-side rendering talks to the API container directly; going out
       # through the public hostname would leave the tunnel and come back.
       - INTERNAL_API_URL=http://server:3001/api
+      - REVALIDATE_SECRET=${REVALIDATE_SECRET}
     ports:
       - "127.0.0.1:3000:3000"
     networks:

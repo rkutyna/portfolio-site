@@ -17,3 +17,7 @@ API_SERVER_URL=http://localhost:3001
 # Admin Authentication
 ADMIN_SECRET_KEY=your_super_secret_key_here
 JWT_SECRET=your_random_jwt_secret_here
+
+# Shared by the API server and the Next.js client so admin writes can flush the
+# client's page cache. Generate with: openssl rand -hex 32
+REVALIDATE_SECRET=your_random_revalidate_secret_here
