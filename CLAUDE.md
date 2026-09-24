@@ -43,6 +43,8 @@ All services are orchestrated via `docker-compose.yml` in the repo root.
 | POST | `/api/blogs` | admin |
 | PUT | `/api/blogs/:id` | admin |
 | DELETE | `/api/blogs/:id` | admin |
+| PUT | `/api/projects/:id/images/order` | admin (`{ images: [url, ...] }`, must be the current set; 409 if stale) |
+| PUT | `/api/blogs/:id/images/order` | admin (same; does not touch the post's date) |
 | GET | `/api/photos` | public |
 | POST | `/api/photos` | admin |
 | PUT | `/api/photos/:id` | admin |
@@ -57,7 +59,8 @@ All services are orchestrated via `docker-compose.yml` in the repo root.
 ### Database tables
 
 - `projects` - portfolio projects, with `project_images` for multi-image support
-- `blogs` - blog posts, with `blog_images` for multi-image support
+- `blogs` - blog posts, with `blog_images` for multi-image support. `PUT /api/blogs/:id` stamps `date = NOW()`, so an edit moves the post to the top; the admin only sends it when the title or text changed
+- Image order is `position` in `project_images`/`blog_images`; the first image is the cover and is mirrored into the parent's `image_url`
 - `photos` - photo gallery; `image_url IS NULL` means conversion is pending; `thumb_url IS NULL` means derivatives are pending; `storage_key` is the relative path within `/uploads/`; `upload_group_id` groups photos uploaded together
 - `site_content` - editable site copy as `key`/`value` rows. Defaults live in `CONTENT_DEFAULTS` in `server/index.js` and are mirrored in `client/src/lib/content.js` (which also defines the admin editor's field groups). Keys are seeded on startup with `ON CONFLICT DO NOTHING`, so edits are never overwritten. Only keys in `CONTENT_DEFAULTS` are accepted by the API.
 - `page_views` - analytics rows behind the admin overview
@@ -190,12 +193,17 @@ site:
    headings at body size, because Tailwind's preflight resets them.
 
 The current render sites are the project and blog detail pages, `About`,
-`Contact`, and the admin blog preview.
+`Contact`, and `MarkdownPreview` (`client/src/app/admin/MarkdownPreview.js`),
+which the project and blog editors show beside the textarea at all times so a
+pasted URL visibly becomes a link before publishing.
 
 ## Server-side rendering
 
 The home page, layout and resume page are React Server Components and fetch from
-the API at request/revalidate time (`revalidate: 30`). Inside Docker they use
+the API on the server. The home page is `force-dynamic` with `no-store` fetches:
+under ISR (`revalidate: 30`, stale-while-revalidate) the first visits after
+publishing got the pre-publish page, so a new post looked missing. The layout
+and resume page still use `revalidate: 30`. Inside Docker they use
 `INTERNAL_API_URL` (`http://server:3001/api`) so SSR does not leave the host and
 come back through Cloudflare. `getContent()` never throws — on any failure it
 returns `CONTENT_DEFAULTS`, so a page always renders.

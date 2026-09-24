@@ -1,6 +1,4 @@
 import ProjectCard from './ProjectCard';
-// Import the Link component from Next.js
-import Link from 'next/link';
 
 // Accepts an object with a `projects` property (destructuring props).
 export default function Projects({ projects = [], heading = 'Projects' }) {
@@ -12,17 +10,17 @@ export default function Projects({ projects = [], heading = 'Projects' }) {
       <div className="mt-3 h-1 w-20 bg-sky-400/70 rounded mx-auto" />
       
       <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {/* Map over `projects` and render a ProjectCard for each */}
+        {/* Map over `projects` and render a ProjectCard for each; the card
+            links itself to the detail page. */}
         {projects.map((project) => (
-          // Wrap each ProjectCard in a Link to its detail page.
-          <Link key={project.id} href={`/projects/${project.id}`}>
-            <ProjectCard 
-              title={project.title} 
-              description={project.description} 
-              imageUrl={(project.images && project.images.length ? project.images[0] : project.image_url)}
-              projectUrl={project.project_url}
-            />
-          </Link>
+          <ProjectCard
+            key={project.id}
+            href={`/projects/${project.id}`}
+            title={project.title} 
+            description={project.description} 
+            imageUrl={(project.images && project.images.length ? project.images[0] : project.image_url)}
+            projectUrl={project.project_url}
+          />
         ))}
       </div>
     </section>

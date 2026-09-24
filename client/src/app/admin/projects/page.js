@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Carousel from "../../components/Carousel";
-import { useAdminAuth, getToken } from "../useAdminAuth";
+import { useAdminAuth, getToken, adminFetch, errorMessage } from "../useAdminAuth";
 import AdminShell from "../AdminShell";
+import { MarkdownEditor } from "../MarkdownPreview";
+import ImageOrder, { moveItem } from "../ImageOrder";
 
 export default function AdminProjects() {
   const verified = useAdminAuth();
@@ -16,7 +17,8 @@ export default function AdminProjects() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [videoUploadProgress, setVideoUploadProgress] = useState(null); // { current, total, stage }
   const [editId, setEditId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", description: "", project_url: "" });
+  const [editForm, setEditForm] = useState({ title: "", description: "", project_url: "", images: [] });
+  const [editOriginalImages, setEditOriginalImages] = useState([]);
 
 
   const fetchProjects = async () => {
@@ -165,7 +167,9 @@ export default function AdminProjects() {
       title: project.title,
       description: project.description,
       project_url: project.project_url || "",
+      images: project.images || [],
     });
+    setEditOriginalImages(project.images || []);
   };
 
   const handleEdit = async (e) => {
@@ -186,6 +190,14 @@ export default function AdminProjects() {
         }),
       });
       if (!res.ok) throw new Error("Failed to update project");
+      if (editForm.images.join("\n") !== editOriginalImages.join("\n")) {
+        const orderRes = await adminFetch(`/projects/${editId}/images/order`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ images: editForm.images }),
+        });
+        if (!orderRes.ok) throw new Error(await errorMessage(orderRes, "Failed to save image order"));
+      }
       setEditId(null);
       fetchProjects();
     } catch (err) {
@@ -213,12 +225,12 @@ export default function AdminProjects() {
           />
         </div>
         <div className="mb-4">
-          <textarea
-            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
-            placeholder="Description (Markdown supported)"
-            rows={5}
+          <MarkdownEditor
+            label="Description (Markdown)"
+            placeholder="Describe the project…"
+            rows={10}
             value={form.description}
-            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            onChange={description => setForm(f => ({ ...f, description }))}
             required
           />
         </div>
@@ -243,7 +255,10 @@ export default function AdminProjects() {
         </div>
         {previewUrls.length > 0 && (
           <div className="mb-4">
-            <Carousel images={previewUrls} alt="Project image previews" heightClass="h-60" />
+            <ImageOrder
+              images={previewUrls}
+              onMove={(from, to) => setForm(f => ({ ...f, images: moveItem(f.images, from, to) }))}
+            />
           </div>
         )}
         <div className="mb-4">
@@ -297,11 +312,11 @@ export default function AdminProjects() {
                       onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
                       required
                     />
-                    <textarea
-                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded text-sky-100 placeholder-slate-300/70 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
-                      rows={4}
+                    <MarkdownEditor
+                      label="Description (Markdown)"
+                      rows={10}
                       value={editForm.description}
-                      onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                      onChange={description => setEditForm(f => ({ ...f, description }))}
                       required
                     />
                     <input
@@ -309,6 +324,10 @@ export default function AdminProjects() {
                       placeholder="Project URL"
                       value={editForm.project_url}
                       onChange={e => setEditForm(f => ({ ...f, project_url: e.target.value }))}
+                    />
+                    <ImageOrder
+                      images={editForm.images}
+                      onMove={(from, to) => setEditForm(f => ({ ...f, images: moveItem(f.images, from, to) }))}
                     />
                     <div className="flex gap-2">
                       <button type="submit" className="bg-emerald-600/80 text-white px-3 py-1 rounded border border-white/10 hover:bg-emerald-500/80" disabled={isSubmitting}>Save</button>

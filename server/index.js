@@ -1144,6 +1144,59 @@ app.put('/api/blogs/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// Reorder a post's images. The body is `{ images: [url, ...] }` — the post's
+// current image URLs in the new order. It must be exactly the existing set, so
+// a stale editor cannot drop or duplicate an image. The first image becomes the
+// parent's `image_url`, which is the fallback cover.
+const reorderImages = ({ parent, table, fk }) => async (req, res) => {
+  const { id } = req.params;
+  const order = req.body && req.body.images;
+  if (!Array.isArray(order) || !order.every((u) => typeof u === 'string')) {
+    return res.status(400).json({ error: 'images must be an array of image URLs' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const parentRow = await client.query(`SELECT id FROM ${parent} WHERE id = $1 FOR UPDATE`, [id]);
+    if (parentRow.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const current = await client.query(`SELECT id, image_url FROM ${table} WHERE ${fk} = $1`, [id]);
+    const idByUrl = new Map(current.rows.map((r) => [r.image_url, r.id]));
+    const sameSet =
+      order.length === current.rows.length &&
+      new Set(order).size === order.length &&
+      order.every((u) => idByUrl.has(u));
+    if (!sameSet) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Image list is out of date. Reload and try again.' });
+    }
+
+    for (let i = 0; i < order.length; i++) {
+      await client.query(`UPDATE ${table} SET position = $1 WHERE id = $2`, [i, idByUrl.get(order[i])]);
+    }
+    if (order.length) {
+      await client.query(`UPDATE ${parent} SET image_url = $1 WHERE id = $2`, [order[0], id]);
+    }
+    await client.query('COMMIT');
+    res.json({ images: order });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error reordering images', err.stack);
+    res.status(500).send('Server Error');
+  } finally {
+    client.release();
+  }
+};
+
+app.put('/api/projects/:id/images/order', requireAdmin,
+  reorderImages({ parent: 'projects', table: 'project_images', fk: 'project_id' }));
+app.put('/api/blogs/:id/images/order', requireAdmin,
+  reorderImages({ parent: 'blogs', table: 'blog_images', fk: 'blog_id' }));
+
 // API endpoint to DELETE a project
 app.delete('/api/projects/:id', requireAdmin, async (req, res) => {
   const { id } = req.params;

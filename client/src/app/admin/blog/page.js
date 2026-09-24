@@ -1,28 +1,13 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
 import { useAdminAuth, adminFetch, errorMessage } from "../useAdminAuth";
 import AdminShell from "../AdminShell";
 import Toast from "../Toast";
-import Carousel from "../../components/Carousel";
+import { MarkdownEditor } from "../MarkdownPreview";
+import ImageOrder, { moveItem } from "../ImageOrder";
 import { formatDate } from '../../../lib/dates';
-import { normalizeMarkdown } from '../../../lib/markdown';
 
 const EMPTY = { title: "", content: "", images: [] };
-
-/** Live Markdown preview — posts render as Markdown, so the editor should too. */
-function MarkdownPreview({ value }) {
-  if (!value?.trim()) {
-    return <p className="text-slate-500 text-sm italic">Nothing to preview yet.</p>;
-  }
-  return (
-    <div className="markdown-body text-slate-300">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{normalizeMarkdown(value)}</ReactMarkdown>
-    </div>
-  );
-}
 
 export default function AdminBlogPage() {
   const verified = useAdminAuth();
@@ -31,11 +16,10 @@ export default function AdminBlogPage() {
   const [toast, setToast] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [previewUrls, setPreviewUrls] = useState([]);
-  const [showPreview, setShowPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [editForm, setEditForm] = useState({ title: "", content: "" });
-  const [editPreview, setEditPreview] = useState(false);
+  const [editForm, setEditForm] = useState({ title: "", content: "", images: [] });
+  const [editOriginal, setEditOriginal] = useState(null);
 
   const fetchBlogs = useCallback(async () => {
     setLoading(true);
@@ -98,21 +82,34 @@ export default function AdminBlogPage() {
   };
 
   const startEdit = (blog) => {
+    const initial = { title: blog.title || "", content: blog.content || "", images: blog.images || [] };
     setEditId(blog.id);
-    setEditForm({ title: blog.title || "", content: blog.content || "" });
-    setEditPreview(false);
+    setEditForm(initial);
+    setEditOriginal(initial);
   };
 
   const handleEdit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await adminFetch(`/blogs/${editId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: editForm.title, content: editForm.content }),
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to update post"));
+      // Saving text stamps the post with a new date, so skip that request when
+      // only the image order changed.
+      if (editForm.title !== editOriginal.title || editForm.content !== editOriginal.content) {
+        const res = await adminFetch(`/blogs/${editId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: editForm.title, content: editForm.content }),
+        });
+        if (!res.ok) throw new Error(await errorMessage(res, "Failed to update post"));
+      }
+      if (editForm.images.join("\n") !== editOriginal.images.join("\n")) {
+        const res = await adminFetch(`/blogs/${editId}/images/order`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ images: editForm.images }),
+        });
+        if (!res.ok) throw new Error(await errorMessage(res, "Failed to save image order"));
+      }
       setEditId(null);
       setToast({ tone: "success", message: "Saved." });
       fetchBlogs();
@@ -139,31 +136,13 @@ export default function AdminBlogPage() {
           required
         />
 
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm text-slate-400">Content (Markdown)</span>
-          <button
-            type="button"
-            onClick={() => setShowPreview((v) => !v)}
-            className="text-xs rounded-full border border-white/15 bg-white/5 px-3 py-1 text-slate-300 hover:bg-white/10"
-          >
-            {showPreview ? "Hide preview" : "Show preview"}
-          </button>
-        </div>
-        <div className={showPreview ? "grid gap-4 lg:grid-cols-2" : ""}>
-          <textarea
-            className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 font-mono text-sm text-sky-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
-            placeholder="Write your post…"
-            rows={14}
-            value={form.content}
-            onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))}
-            required
-          />
-          {showPreview && (
-            <div className="rounded-lg border border-white/15 bg-white/5 p-4 overflow-y-auto max-h-[22rem]">
-              <MarkdownPreview value={form.content} />
-            </div>
-          )}
-        </div>
+        <MarkdownEditor
+          placeholder="Write your post…"
+          rows={14}
+          value={form.content}
+          onChange={(content) => setForm((f) => ({ ...f, content }))}
+          required
+        />
 
         <div className="mt-4">
           <label className="block text-sm text-slate-400 mb-1.5">Images (optional, JPEG)</label>
@@ -177,8 +156,11 @@ export default function AdminBlogPage() {
         </div>
 
         {previewUrls.length > 0 && (
-          <div className="mt-6">
-            <Carousel images={previewUrls} alt="Image previews" heightClass="h-72" />
+          <div className="mt-4">
+            <ImageOrder
+              images={previewUrls}
+              onMove={(from, to) => setForm((f) => ({ ...f, images: moveItem(f.images, from, to) }))}
+            />
           </div>
         )}
 
@@ -213,29 +195,15 @@ export default function AdminBlogPage() {
                     onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
                     required
                   />
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setEditPreview((v) => !v)}
-                      className="text-xs rounded-full border border-white/15 bg-white/5 px-3 py-1 text-slate-300 hover:bg-white/10"
-                    >
-                      {editPreview ? "Hide preview" : "Show preview"}
-                    </button>
-                  </div>
-                  <div className={editPreview ? "grid gap-4 lg:grid-cols-2" : ""}>
-                    <textarea
-                      rows={12}
-                      className="w-full rounded-lg border border-white/15 bg-white/5 px-3 py-2 font-mono text-sm text-sky-100 focus:outline-none focus:ring-2 focus:ring-sky-400/50"
-                      value={editForm.content}
-                      onChange={(e) => setEditForm((f) => ({ ...f, content: e.target.value }))}
-                      required
-                    />
-                    {editPreview && (
-                      <div className="rounded-lg border border-white/15 bg-white/5 p-4 overflow-y-auto max-h-[20rem]">
-                        <MarkdownPreview value={editForm.content} />
-                      </div>
-                    )}
-                  </div>
+                  <MarkdownEditor
+                    value={editForm.content}
+                    onChange={(content) => setEditForm((f) => ({ ...f, content }))}
+                    required
+                  />
+                  <ImageOrder
+                    images={editForm.images}
+                    onMove={(from, to) => setEditForm((f) => ({ ...f, images: moveItem(f.images, from, to) }))}
+                  />
                   <div className="flex gap-2">
                     <button type="submit" disabled={isSubmitting} className="rounded-lg bg-emerald-600/80 px-3 py-1.5 text-sm text-white hover:bg-emerald-500/80 disabled:opacity-40">
                       Save
