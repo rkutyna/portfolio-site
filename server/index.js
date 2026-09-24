@@ -136,6 +136,15 @@ const uploadLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Gallery uploads are split into ~80MB requests to stay under Cloudflare's
+// body limit, so a shoot of RAW files is dozens of requests on its own.
+const photoUploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.get('/api/admin/verify', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
@@ -417,9 +426,14 @@ app.post('/api/upload/video/assemble', requireAdmin, async (req, res) => {
   }
 });
 
+// JPEGs are stored and served as uploaded. Everything else lands in
+// uploads/raw/ and the photo worker converts it to JPEG (see worker/worker.js,
+// which mirrors these lists).
 const RAW_EXTS = new Set(['.nef', '.dng', '.cr2', '.cr3', '.arw', '.rw2', '.orf', '.raf', '.srw']);
 const HEIC_EXTS = new Set(['.heic', '.heif']);
-const PHOTO_EXTS = new Set(['.jpg', '.jpeg', ...RAW_EXTS, ...HEIC_EXTS]);
+const OTHER_IMAGE_EXTS = new Set(['.png', '.webp', '.tif', '.tiff', '.avif']);
+const PHOTO_EXTS = new Set(['.jpg', '.jpeg', ...RAW_EXTS, ...HEIC_EXTS, ...OTHER_IMAGE_EXTS]);
+const PHOTO_TYPE_ERROR = 'Unsupported file type. Upload JPEG, PNG, WebP, TIFF, AVIF, HEIC or a camera RAW file.';
 
 const isAllowedPhoto = (file) => {
   const ext = path.extname(file.originalname || '').toLowerCase();
@@ -429,12 +443,14 @@ const isAllowedPhoto = (file) => {
 const uploadPhotos = multer({
   storage: storage,
   limits: {
-    fileSize: 50 * 1024 * 1024,
+    // Cloudflare rejects request bodies over 100MB, and the admin uploads a
+    // file that large in a request of its own, so this is the real ceiling.
+    fileSize: 95 * 1024 * 1024,
     files: 25,
   },
   fileFilter: (req, file, cb) => {
     if (!isAllowedPhoto(file)) {
-      return cb(new Error('Only JPEG, RAW, or HEIC images are allowed.'));
+      return cb(new Error(PHOTO_TYPE_ERROR));
     }
     cb(null, true);
   }
@@ -580,7 +596,8 @@ app.get('/api/photos', async (req, res) => {
             FILTER (WHERE image_url IS NOT NULL),
           ARRAY[]::bigint[]
         ) AS image_bytes,
-        COUNT(*) FILTER (WHERE image_url IS NULL) AS pending_count,
+        COUNT(*) FILTER (WHERE image_url IS NULL AND NOT conversion_failed) AS pending_count,
+        COUNT(*) FILTER (WHERE image_url IS NULL AND conversion_failed) AS failed_count,
         MIN(created_at) AS created_at
       FROM photos
       GROUP BY COALESCE(upload_group_id, id::text)
@@ -610,28 +627,40 @@ const processPhotoFile = async (file, baseUrl) => {
   };
 };
 
-// Create photos (supports RAW/HEIC -> JPEG conversion and deletes originals)
-app.post('/api/photos', requireAdmin, uploadLimiter, uploadPhotos.array('photos'), async (req, res) => {
+// Create photos. Non-JPEG files are queued for the worker to convert.
+app.post('/api/photos', requireAdmin, photoUploadLimiter, uploadPhotos.array('photos'), async (req, res) => {
   const { title = null, caption = null, upload_group_id = null } = req.body || {};
   const files = req.files || [];
   if (!files.length) return res.status(400).json({ error: 'Missing photo files' });
 
   const baseUrl = process.env.API_SERVER_URL || `${req.protocol}://${req.get('host')}`;
+  // One transaction per batch: a failure part-way used to keep the rows
+  // already inserted and drop the rest, leaving a half-uploaded group.
+  const client = await pool.connect();
   try {
     const uploadGroupId = upload_group_id || crypto.randomUUID();
     const inserted = [];
+    await client.query('BEGIN');
     for (const file of files) {
       const { imageUrl, rawUrl, storageKey } = await processPhotoFile(file, baseUrl);
-      const result = await pool.query(
+      const result = await client.query(
         'INSERT INTO photos (title, caption, image_url, raw_url, upload_group_id, storage_key) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
         [title, caption, imageUrl, rawUrl, uploadGroupId, storageKey]
       );
       inserted.push(result.rows[0]);
     }
+    await client.query('COMMIT');
     res.status(201).json({ upload_group_id: uploadGroupId, photos: inserted });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    // The rows are gone, so the files multer already wrote would be orphans.
+    for (const file of files) {
+      try { fs.unlinkSync(file.path); } catch {}
+    }
     console.error('Error processing photo upload', err);
     res.status(500).json({ error: 'Failed to process photo upload' });
+  } finally {
+    client.release();
   }
 });
 
@@ -822,12 +851,25 @@ const initDb = async () => {
         id SERIAL PRIMARY KEY,
         title VARCHAR(255),
         caption TEXT,
-        image_url TEXT NOT NULL,
+        image_url TEXT,
         raw_url TEXT,
         storage_key TEXT,
         upload_group_id TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
+    `);
+
+    // Non-JPEG uploads are inserted with no image_url; the worker fills it in
+    // once the file is converted. The table was first created NOT NULL, which
+    // made every RAW/HEIC upload fail at insert.
+    await pool.query(`
+      ALTER TABLE photos ALTER COLUMN image_url DROP NOT NULL;
+    `);
+
+    // Set by the worker when a file cannot be converted, so it stops retrying
+    // (and stops blocking the queue). Clear it to re-queue the photo.
+    await pool.query(`
+      ALTER TABLE photos ADD COLUMN IF NOT EXISTS conversion_failed BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
     await pool.query(`
@@ -1383,7 +1425,7 @@ app.use((err, req, res, next) => {
   if (err && err.message === 'Only JPEG images are allowed.') {
     return res.status(400).json({ error: err.message });
   }
-  if (err && err.message === 'Only JPEG, RAW, or HEIC images are allowed.') {
+  if (err && err.message === PHOTO_TYPE_ERROR) {
     return res.status(400).json({ error: err.message });
   }
   if (err && err.message === 'Only MP4, WebM, MOV, AVI, or MKV video files are allowed.') {

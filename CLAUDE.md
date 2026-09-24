@@ -8,7 +8,7 @@ This is a full-stack portfolio site with four Docker services:
 
 - **`client/`** - Next.js 15 (React 19, Tailwind CSS v4) frontend, port 3000
 - **`server/`** - Express.js API server, port 3001
-- **`worker/`** - Background Node.js process: converts RAW/HEIC photos to JPEG and generates thumbnail/display derivatives for every photo
+- **`worker/`** - Background Node.js process: converts non-JPEG photos (RAW, HEIC, PNG, WebP, TIFF, AVIF) to JPEG and generates thumbnail/display derivatives for every photo
 - **`db`** - PostgreSQL 15 (managed by Docker Compose, no local directory)
 
 All services are orchestrated via `docker-compose.yml` in the repo root.
@@ -18,7 +18,11 @@ All services are orchestrated via `docker-compose.yml` in the repo root.
 1. The client fetches data from the API at `NEXT_PUBLIC_API_URL` (baked in at build time as a Next.js env var).
 2. The server serves REST endpoints under `/api/*` and static uploads from `/uploads/*`.
 3. The worker polls the database every `WORKER_POLL_MS` ms and runs two jobs:
-   - **Conversion** — photos with `image_url IS NULL` (RAW/HEIC not yet converted) are converted via `sharp` / `exiftool-vendored`.
+   - **Conversion** — photos with `image_url IS NULL` (non-JPEG not yet converted) are converted to JPEG:
+     - **RAW** — the camera's embedded full-size JPEG (`JpgFromRaw`/`PreviewImage` via `exiftool-vendored`), kept byte-for-byte with the RAW's `Orientation` tag copied onto it. When the preview is under 2048px (phone DNGs), LibRaw's `dcraw_emu` decodes the sensor data instead.
+     - **HEIC/HEIF** — libheif's `heif-dec`. sharp's prebuilt libvips has no HEVC decoder, so it cannot read iPhone HEICs itself (it reports `compression: hevc` in metadata, then fails to decode). libheif applies the file's rotation while decoding, so the JPEG is written without re-rotating.
+     - **PNG/WebP/TIFF/AVIF** — sharp, flattening transparency onto white.
+     - A file that fails is flagged `conversion_failed` so it cannot block the queue (the query is `LIMIT`ed and oldest-first); clearing the flag re-queues it. The source is deleted after a successful conversion unless `KEEP_RAW=true`.
    - **Derivatives** — photos with `thumb_url IS NULL` get a 640px `__thumb.webp` and a 2048px `__display.webp` written next to the original (`worker/derivatives.js`). A photo that fails is flagged `derivatives_failed` so it does not stall the queue; clearing that column re-queues it.
 4. The server and worker share the `server_uploads` Docker volume.
 5. The database schema is created/migrated automatically by `initDb()` in `server/index.js` on startup — there is no separate migration tool.
@@ -61,7 +65,7 @@ All services are orchestrated via `docker-compose.yml` in the repo root.
 - `projects` - portfolio projects, with `project_images` for multi-image support
 - `blogs` - blog posts, with `blog_images` for multi-image support. `PUT /api/blogs/:id` stamps `date = NOW()`, so an edit moves the post to the top; the admin only sends it when the title or text changed
 - Image order is `position` in `project_images`/`blog_images`; the first image is the cover and is mirrored into the parent's `image_url`
-- `photos` - photo gallery; `image_url IS NULL` means conversion is pending; `thumb_url IS NULL` means derivatives are pending; `storage_key` is the relative path within `/uploads/`; `upload_group_id` groups photos uploaded together
+- `photos` - photo gallery; `image_url IS NULL` means conversion is pending (or failed, if `conversion_failed`); `thumb_url IS NULL` means derivatives are pending; `storage_key` is the relative path within `/uploads/`; `upload_group_id` groups photos uploaded together
 - `site_content` - editable site copy as `key`/`value` rows. Defaults live in `CONTENT_DEFAULTS` in `server/index.js` and are mirrored in `client/src/lib/content.js` (which also defines the admin editor's field groups). Keys are seeded on startup with `ON CONFLICT DO NOTHING`, so edits are never overwritten. Only keys in `CONTENT_DEFAULTS` are accepted by the API.
 - `page_views` - analytics rows behind the admin overview
 
@@ -166,8 +170,10 @@ All admin pages share `AdminShell` (`client/src/app/admin/AdminShell.js`) for na
 ## Image Upload Details
 
 - Project/blog images: JPEG only, max 10MB per file, up to 10 files; stored directly in `/uploads/`
-- Photo gallery uploads: JPEG, RAW (`.nef`, `.dng`, `.cr2`, `.cr3`, `.arw`, `.rw2`, `.orf`, `.raf`, `.srw`), or HEIC/HEIF; max 50MB per file, up to 25 files
-- JPEG photos go directly to `/uploads/`; non-JPEG go to `/uploads/raw/` and are queued for conversion by the worker
+- Photo gallery uploads: JPEG, PNG, WebP, TIFF, AVIF, HEIC/HEIF, or RAW (`.nef`, `.dng`, `.cr2`, `.cr3`, `.arw`, `.rw2`, `.orf`, `.raf`, `.srw`); max 95MB per file, up to 25 files per request. The extension lists live in `server/index.js` (`PHOTO_EXTS`), `worker/worker.js` and the admin photos page's `ACCEPT`; keep all three in step
+- Cloudflare rejects request bodies over 100MB. The admin photos page splits a selection into ~80MB requests sharing one `upload_group_id` (a larger file goes alone), which is why the per-file cap is 95MB rather than higher; going past it would need chunked upload like the video path. Photo uploads have their own rate limit (300 requests / 15 min) because a RAW shoot is many requests
+- A batch's rows are inserted in one transaction; on failure the files multer wrote are removed
+- JPEG photos go directly to `/uploads/`; everything else goes to `/uploads/raw/` and is queued for conversion by the worker, which also uses `/uploads/raw/.convert-*` as scratch space
 - `/uploads/raw/` is blocked from public HTTP access by the server
 
 ## Rendering author-written Markdown

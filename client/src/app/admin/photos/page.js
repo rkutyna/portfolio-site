@@ -6,7 +6,10 @@ import AdminShell from "../AdminShell";
 import Toast from "../Toast";
 import { groupImages, formatBytes } from "../../../lib/photos";
 
-const ACCEPT = ".jpg,.jpeg,.heic,.heif,.nef,.dng,.cr2,.cr3,.arw,.rw2,.orf,.raf,.srw";
+// Mirrors PHOTO_EXTS in server/index.js. Anything but JPEG is converted to
+// JPEG by the photo worker after upload.
+const ACCEPT =
+  ".jpg,.jpeg,.png,.webp,.tif,.tiff,.avif,.heic,.heif,.nef,.dng,.cr2,.cr3,.arw,.rw2,.orf,.raf,.srw";
 // Cloudflare caps a request body at 100MB; stay comfortably under it.
 const BATCH_LIMIT = 80 * 1024 * 1024;
 
@@ -34,6 +37,8 @@ export default function AdminPhotosPage() {
   const [toast, setToast] = useState(null);
   const [form, setForm] = useState({ title: "", caption: "", files: [] });
   const [previews, setPreviews] = useState([]);
+  // Previews the browser could not decode (RAW, TIFF, HEIC outside Safari).
+  const [unpreviewable, setUnpreviewable] = useState(() => new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [progress, setProgress] = useState(null);
   const [editId, setEditId] = useState(null);
@@ -65,6 +70,7 @@ export default function AdminPhotosPage() {
     }
     const urls = form.files.map((file) => URL.createObjectURL(file));
     setPreviews(urls);
+    setUnpreviewable(new Set());
     return () => urls.forEach((url) => URL.revokeObjectURL(url));
   }, [form.files]);
 
@@ -215,7 +221,8 @@ export default function AdminPhotosPage() {
           />
           <span className="block text-sky-100 font-medium">Drop photos here, or click to choose</span>
           <span className="block text-xs text-slate-400 mt-1">
-            JPEG, RAW (NEF, DNG, CR2/CR3, ARW, RW2, ORF, RAF, SRW), or HEIC. Max 50 MB per file.
+            JPEG, PNG, WebP, TIFF, AVIF, HEIC, or camera RAW (NEF, DNG, CR2/CR3, ARW, RW2, ORF, RAF, SRW).
+            Non-JPEGs are converted to JPEG after upload. Max 95 MB per file.
           </span>
         </label>
 
@@ -234,8 +241,22 @@ export default function AdminPhotosPage() {
             <div className="flex gap-3 overflow-x-auto pb-2">
               {previews.map((url, i) => (
                 <div key={url} className="relative h-20 w-28 shrink-0 rounded-md overflow-hidden border border-white/10">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="h-full w-full object-cover" />
+                  {unpreviewable.has(url) ? (
+                    <div className="grid h-full w-full place-items-center bg-white/5 px-1 text-center">
+                      <span className="text-xs font-semibold uppercase text-slate-300">
+                        {form.files[i]?.name.split(".").pop()}
+                      </span>
+                      <span className="text-[10px] leading-tight text-slate-500">No preview</span>
+                    </div>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      onError={() => setUnpreviewable((prev) => new Set(prev).add(url))}
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={() => removeFile(i)}
@@ -288,17 +309,21 @@ export default function AdminPhotosPage() {
           {photos.map((photo) => {
             const images = groupImages(photo);
             const pending = Number(photo.pending_count || 0);
+            const failed = Number(photo.failed_count || 0);
             return (
               <div key={photo.id} className="rounded-xl border border-white/10 bg-white/10 backdrop-blur-xl overflow-hidden flex flex-col">
                 <div className="relative h-40 bg-white/5">
                   {images[0] ? (
                     <Image src={images[0].thumb} alt={photo.title || "Photo"} fill className="object-cover" sizes="320px" unoptimized />
                   ) : (
-                    <div className="grid h-full place-items-center text-slate-500 text-sm">Processing…</div>
+                    <div className="grid h-full place-items-center text-slate-500 text-sm">
+                      {pending > 0 ? "Processing…" : failed > 0 ? "Couldn't convert" : "No images"}
+                    </div>
                   )}
                   <span className="absolute bottom-2 right-2 rounded-full bg-slate-900/70 border border-white/10 px-2 py-0.5 text-[11px] text-sky-100 backdrop-blur">
                     {images.length} image{images.length === 1 ? "" : "s"}
                     {pending > 0 ? ` · ${pending} processing` : ""}
+                    {failed > 0 ? ` · ${failed} failed` : ""}
                   </span>
                 </div>
 
