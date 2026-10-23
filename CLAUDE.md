@@ -117,6 +117,17 @@ to a transitive patch — so the override exists to stay on Express 4. Do not ru
 `npm audit fix --force` here without deciding to take the Express 5 migration on
 purpose, and keep the override when bumping Express within 4.x.
 
+The server sets `trust proxy` to the hop count `1` (Cloudflare's tunnel is the
+one proxy in front of it), so `req.ip` is the address Cloudflare appended to
+`X-Forwarded-For`. Keep it a hop count: a subnet string, especially one written
+in IPv4-mapped IPv6 form, is the configuration behind GHSA-jqcg-44mw-7w3h and
+would let any client choose its own `req.ip`, defeating the rate limits.
+
+The worker calls `sharp.block()` on the SVG loader (`worker/derivatives.js`).
+sharp chooses a decoder from file contents rather than the extension, so
+without it an SVG renamed `.png` would reach librsvg. Nothing on the site needs
+SVG decoding; leave the block in place.
+
 ## Environment Variables
 
 A `.env` file in the repo root is required for Docker Compose. Minimum required:

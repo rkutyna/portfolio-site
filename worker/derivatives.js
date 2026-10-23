@@ -21,6 +21,12 @@ const DISPLAY_QUALITY = 80;
 sharp.cache(false);
 sharp.concurrency(1);
 
+// Never decode SVG. sharp picks the decoder from a file's contents, not its
+// extension, so an SVG renamed to .png would otherwise reach librsvg, which has
+// had memory-safety bugs (GHSA-wq5f-xc86-pv6w). This is process-wide, so it
+// also covers the conversions in worker.js.
+sharp.block({ operation: ['VipsForeignLoadSvg'] });
+
 const SUFFIX_RE = /__(thumb|display)\.webp$/i;
 
 /** True for files this module itself produced — never derive from a derivative. */
