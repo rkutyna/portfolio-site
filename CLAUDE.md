@@ -187,6 +187,37 @@ All admin pages share `AdminShell` (`client/src/app/admin/AdminShell.js`) for na
 - JPEG photos go directly to `/uploads/`; everything else goes to `/uploads/raw/` and is queued for conversion by the worker, which also uses `/uploads/raw/.convert-*` as scratch space
 - `/uploads/raw/` is blocked from public HTTP access by the server
 
+## Publishing the resume
+
+The resume is one file, `uploads/resume.pdf` in the `server_uploads` volume.
+`GET /api/resume` serves it, and the worker rasterises it into
+`uploads/resume-pages/` (re-rendering whenever its SHA-256 changes) for the
+`/resume` page to display.
+
+Publishing is **manual by design**. Roger's canonical PDF is
+`~/Documents/Job_Search/resume/Roger_Kutyna_Resume.pdf`, re-rendered often, and a
+re-render must not go live by itself. Publish only when Roger asks, either
+through Admin → Resume or from the Mac with:
+
+```bash
+scripts/publish-resume.sh            # the canonical PDF
+scripts/publish-resume.sh other.pdf  # or a specific file
+```
+
+The script needs only SSH to `rkadmin@rk-minipc`, no admin secret. It writes the
+PDF into the API container atomically, waits for the worker to render it, and
+exits 0 once `rogerkutyna.com/resume` references the new file's hash (usually
+about 5 seconds). Re-running with an unchanged PDF is a no-op.
+
+Two things keep a new resume from showing stale:
+
+- `/api/resume/pages` versions each page-image URL with `?v=<sourceHash>`. The
+  images keep the same filenames but are served immutable for a year and
+  cached by Cloudflare, so an unversioned URL would keep showing the old page.
+- The worker flushes the page cache (`REVALIDATE_URL`) after rendering. The
+  flush an admin upload triggers runs before the render finishes, so on its own
+  it would cache `/resume` with the old images for an hour.
+
 ## Rendering author-written Markdown
 
 Project descriptions, blog posts and the About/Contact copy are written with a

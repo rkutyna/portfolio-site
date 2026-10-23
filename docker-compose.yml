@@ -87,6 +87,9 @@ services:
       - WORKER_POLL_MS=5000
       - WORKER_BATCH=5
       - KEEP_RAW=false
+      # Flushes the client's page cache once a new resume has been rendered.
+      - REVALIDATE_URL=http://client:3000/api/revalidate
+      - REVALIDATE_SECRET=${REVALIDATE_SECRET}
     volumes:
       - server_uploads:/app/uploads
     depends_on:

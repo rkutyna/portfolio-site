@@ -290,10 +290,28 @@ let running = false;
 
 // --- Job 3: resume PDF -> page images ------------------------------------
 
+// The resume page is cached for an hour and shows the rendered page images, so
+// it can only be refreshed once they exist. The admin upload's own flush fires
+// before this render finishes, so flush again here.
+const flushPageCache = async () => {
+  const url = process.env.REVALIDATE_URL;
+  const secret = process.env.REVALIDATE_SECRET;
+  if (!url || !secret) return;
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'x-revalidate-secret': secret } });
+    if (!res.ok) console.error(`Page cache flush refused: ${res.status}`);
+  } catch (e) {
+    console.error('Page cache flush failed', e.message);
+  }
+};
+
 const pollResume = async () => {
   try {
     const { rendered, pages } = await resume.render(UPLOADS_DIR);
-    if (rendered) console.log(`Resume rendered to ${pages} page image(s)`);
+    if (rendered) {
+      console.log(`Resume rendered to ${pages} page image(s)`);
+      await flushPageCache();
+    }
   } catch (e) {
     // Never let a bad PDF take the worker down; the resume page falls back to
     // offering the raw PDF.

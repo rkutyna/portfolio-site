@@ -337,13 +337,18 @@ app.get('/api/resume/pages', (req, res) => {
     }
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     res.set('Cache-Control', 'public, max-age=60');
+    // Page images keep the same filename across resumes but are served
+    // immutable for a year (and cached by Cloudflare), so version the URL by
+    // the source PDF's hash or a new resume would show the old picture.
+    const version = manifest.sourceHash ? `?v=${manifest.sourceHash}` : '';
     res.json({
       pages: (manifest.pages || []).map((page) => ({
-        url: `${baseUrl}/uploads/${page.key}`,
+        url: `${baseUrl}/uploads/${page.key}${version}`,
         width: page.width,
         height: page.height,
       })),
       renderedAt: manifest.renderedAt || null,
+      sourceHash: manifest.sourceHash || null,
       pending: false,
     });
   } catch (err) {
