@@ -168,6 +168,7 @@ Originals average ~10 MB; thumbnails average ~29 KB. Rendering originals directl
 - `/photos` — photo gallery grid
 - `/photos/[id]` — photo detail with group navigation
 - `/resume` — resume page
+- `/privacy` — Life Organizer privacy policy. Google's OAuth consent screen for Roger's Life Organizer app links to this exact URL, so keep the path, keep it public, and keep it tracking-free (`LoggerInit` skips it). The wording describes what that app does; change it only alongside the app
 - `/hiddenlogin` — admin login (obscured URL)
 - `/admin` — overview: content counts, page-view analytics
 - `/admin/content` — edit every piece of site copy
